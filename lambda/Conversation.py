@@ -51,5 +51,5 @@ class Conversation:
         ).json()
         history_data.append({"is_sent":True,"message":message})
         history_data.append({"is_sent":False,"message":data.get("message")})
-        self.history  = history_data
+        self.history = history_data
         return data

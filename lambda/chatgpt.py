@@ -54,7 +54,7 @@ class ChatGPT:
 
         return message
 
-    def retry_post(self, url, headers, data, retries=5, backoff_factor=0.9):
+    def retry_post(self, url, headers, data, retries=3, backoff_factor=0.9):
         for i in range(retries):
             try:
                 response = requests.post(url=url, headers=headers, timeout=120.0, data=data)
@@ -64,5 +64,5 @@ class ChatGPT:
                 if i == retries - 1:
                     raise error
                 backoff_time = backoff_factor * (2 ** i)
-                logging.error(f"HTTP error {error}. Retrying in {backoff_time} seconds...")
+                logging.error(f"HTTP {error}. Retrying in {backoff_time} sec")
                 time.sleep(backoff_time)

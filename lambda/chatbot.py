@@ -64,7 +64,7 @@ async def processing_internal(update, context: ContextTypes.DEFAULT_TYPE):
         response_msg = chat_gpt.ask(chat_text)
     except Exception as e:
         logging.error(e)
-        response_msg = chatsonic.ask(chat_text)["message"]
+        response_msg = chatsonic.ask(chat_text)
         await context.bot.send_message(
             chat_id = chat_id,
             allow_sending_without_reply = True,
