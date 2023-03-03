@@ -7,7 +7,8 @@ import logging
 from telegram import constants
 from functools import wraps
 
-logging.getLogger().setLevel('INFO')
+logging.getLogger().setLevel("INFO")
+
 
 async def send_typing_action(func):
     """Sends typing action while processing func command."""
@@ -19,18 +20,19 @@ async def send_typing_action(func):
         )
         return func(update, context, *args, **kwargs)
 
-    return await command_func
+    return command_func
 
 
 def generate_transcription(file):
-
     s3_client = boto3.client("s3")
     transcribe_client = boto3.client("transcribe")
 
     local_path = "/tmp/voice_message.ogg"
     message_id = str(uuid.uuid4())
 
-    s3_bucket = boto3.client(service_name='ssm').get_parameter(Name="VOICE_MESSAGES_BUCKET")
+    s3_bucket = boto3.client(service_name="ssm").get_parameter(
+        Name="VOICE_MESSAGES_BUCKET"
+    )
     s3_prefix = os.path.join(message_id, "voice_file.ogg")
     remote_s3_path = os.path.join("s3://", s3_bucket, s3_prefix)
 

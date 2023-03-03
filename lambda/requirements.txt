@@ -2,3 +2,5 @@ python-telegram-bot~=20.0
 requests
 boto3
 wget
+tls_client
+websockets
