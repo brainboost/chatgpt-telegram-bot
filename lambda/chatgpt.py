@@ -1,9 +1,10 @@
-import uuid
-import boto3
 import json
-import requests
-import time
 import logging
+import time
+import uuid
+
+import boto3
+import requests
 
 logging.getLogger().setLevel("INFO")
 

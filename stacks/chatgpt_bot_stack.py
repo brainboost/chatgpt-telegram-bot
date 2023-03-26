@@ -1,21 +1,15 @@
-from aws_cdk import (
-    Duration,
-    Stack,
-    CfnOutput,
-    RemovalPolicy as _removalpolicy,
-    aws_s3 as _s3,
-    aws_lambda as _lambda,
-    aws_iam as iam,
-)
-from constructs import Construct
+from aws_cdk import Duration, Stack, triggers
+from aws_cdk import RemovalPolicy as _removalpolicy
+from aws_cdk import aws_iam as iam
+from aws_cdk import aws_lambda as _lambda
+from aws_cdk import aws_s3 as s3
+from aws_cdk import aws_ssm as ssm
 from aws_cdk.aws_lambda_python_alpha import PythonLayerVersion
+from constructs import Construct
 
 LAMBDA_ASSET_PATH = "lambda"
 
-
 class ChatgptBotStack(Stack):
-    bot_lambda: _lambda.Function
-
     def __init__(self, scope: Construct, construct_id: str, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
@@ -26,22 +20,22 @@ class ChatgptBotStack(Stack):
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole"
-                )
+                ),
+                iam.ManagedPolicy.from_aws_managed_policy_name(
+                    "AmazonS3ReadOnlyAccess"
+                ),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMFullAccess"),
+                iam.ManagedPolicy.from_aws_managed_policy_name("AmazonDynamoDBFullAccess"),
             ],
         )
 
-        lambda_role.add_managed_policy(
-            iam.ManagedPolicy.from_aws_managed_policy_name("AmazonSSMFullAccess")
-        )
-
-        self.bucket = _s3.Bucket(
+        self.bucket = s3.Bucket(
             self,
-            "VoiceMessagesBucket",
-            bucket_name="chatgpt-squash-voice-messages-bucket",
-            auto_delete_objects=True,
+            f"{construct_id}-Bucket",
+            bucket_name=f"{construct_id}-s3-bucket".lower(),
             removal_policy=_removalpolicy.DESTROY,
-            block_public_access=_s3.BlockPublicAccess.BLOCK_ALL,
-            versioned=False,
+            block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
+            versioned=True,
         )
 
         self.lambda_layer = PythonLayerVersion(
@@ -51,8 +45,8 @@ class ChatgptBotStack(Stack):
             compatible_runtimes=[_lambda.Runtime.PYTHON_3_9],
         )
 
-        self.bot_lambda = _lambda.Function(
-            self,
+        lambda_function = _lambda.Function(            
+          self,
             "BotHandler",
             code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
             handler="chatbot.message_handler",
@@ -62,19 +56,29 @@ class ChatgptBotStack(Stack):
             role=lambda_role,
         )
 
-        lambdaUrl = self.bot_lambda.add_function_url(
+        lambda_url = lambda_function.add_function_url(
             auth_type=_lambda.FunctionUrlAuthType.NONE, cors=None
+        ).url
+        
+        lambda_url_param = ssm.StringParameter(self, 'LambdaFunctionURLParam',
+          parameter_name='LAMBDA_URL',
+          string_value=lambda_url
         )
 
-        CfnOutput(
-            scope=self,
-            id="chatbotLambdaUrl",
-            value=lambdaUrl.url,
-            export_name="chatbotLambdaUrl",
+        ssm.StringParameter(self, "s3BucketNameParam",
+            parameter_name="CHATBOT_S3_BUCKET",
+            string_value=self.bucket.bucket_name,
         )
-        CfnOutput(
-            scope=self,
-            id="voiceMessagesBucketName",
-            value=self.bucket.bucket_name,
-            export_name="voiceMessagesBucketName",
+
+        self.webhook_trigger = triggers.TriggerFunction(
+            self,
+            "WebhookTriggerHandler",
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            handler="webhook.lambda_handler",
+            layers=[self.lambda_layer],
+            execute_after=[lambda_url_param],
+            timeout=Duration.minutes(1),
+            code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
+            role=lambda_role,
+            execute_on_handler_change=False,
         )

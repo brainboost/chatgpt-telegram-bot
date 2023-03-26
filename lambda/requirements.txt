@@ -1,6 +1,6 @@
-python-telegram-bot~=20.0
+python-telegram-bot~=20.1
+git+https://github.com/brainboost/EdgeGPT.git
+websockets
 requests
 boto3
 wget
-tls_client
-websockets

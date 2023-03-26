@@ -7,6 +7,7 @@ import logging
 from telegram import constants
 from functools import wraps
 
+logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 
@@ -30,9 +31,7 @@ def generate_transcription(file):
     local_path = "/tmp/voice_message.ogg"
     message_id = str(uuid.uuid4())
 
-    s3_bucket = boto3.client(service_name="ssm").get_parameter(
-        Name="VOICE_MESSAGES_BUCKET"
-    )
+    s3_bucket = boto3.client(service_name="ssm").get_parameter(Name="CHATBOT_S3_BUCKET")
     s3_prefix = os.path.join(message_id, "voice_file.ogg")
     remote_s3_path = os.path.join("s3://", s3_bucket, s3_prefix)
 

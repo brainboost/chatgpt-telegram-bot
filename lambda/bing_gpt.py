@@ -1,9 +1,12 @@
-import uuid
-import logging
-import boto3
 import json
-from EdgeGPT import Chatbot
+import logging
+import uuid
 
+import boto3
+from EdgeGPT import Chatbot
+from telegram import constants, helpers
+
+logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 
@@ -20,19 +23,15 @@ class BingGpt:
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
 
-    async def ask(self, text) -> str:
-        try:
-            response = await self.chatbot.ask(prompt=text)
+    async def ask(self, text, userConfig: dict) -> str:
+        response = await self.chatbot.ask(prompt=text)
+        # logging.info(json.dumps(response, default=vars))
+        if "plaintext" in userConfig is True:
+            return self.read_plain_text(response)
+        return self.read_markdown(response)
 
-        except Exception as e:
-            logging.error(e)
-            message = f"{e}"
-        else:
-            logging.info(response)
-            message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0][
-                "text"
-            ]
-        return message
+    async def close(self):
+        await self.chatbot.close()
 
     def read_cookies(self, s3_path) -> dict:
         s3 = boto3.client("s3")
@@ -40,3 +39,11 @@ class BingGpt:
         response = s3.get_object(Bucket=bucket_name, Key=file_name)
         file_content = response["Body"].read().decode("utf-8")
         return json.loads(file_content)
+
+    def read_plain_text(self, response: dict) -> str:
+        return response["item"]["messages"][1]["text"]
+
+    def read_markdown(self, response: dict) -> str:
+        message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
+        return helpers.escape_markdown(message, 2, constants.ParseMode.MARKDOWN_V2)
+
