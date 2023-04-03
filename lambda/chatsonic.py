@@ -1,14 +1,17 @@
-import uuid
+import asyncio
 import logging
+import uuid
+
 import boto3
-from Conversation import Conversation
+from conversation import Conversation
+from engines import EngineInterface, Engines
 
 logging.getLogger().setLevel("INFO")
 
 
-class ChatSonic:
+class ChatSonic(EngineInterface):
     def __init__(self) -> None:
-        _ssm_client = boto3.Session(profile_name="orwell").client(service_name="ssm")
+        _ssm_client = boto3.client(service_name="ssm")
         token = _ssm_client.get_parameter(Name="CHATSONIC_TOKEN")["Parameter"]["Value"]
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
@@ -18,9 +21,9 @@ class ChatSonic:
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
 
-    def ask(self, text) -> str:
+    async def ask(self, text) -> str:
         try:
-            response = self.chatsonic.send_message(message=text)
+            response = await asyncio.run(self.chatsonic.send_message(message=text))
 
         except Exception as e:
             logging.error(e)
@@ -31,3 +34,10 @@ class ChatSonic:
                 (r["message"] for r in response if r["is_sent"] is False), ""
             )
         return message
+    
+    def close(self):
+        pass
+
+    @property
+    def engine_type(self):
+        return Engines.CHATSONIC

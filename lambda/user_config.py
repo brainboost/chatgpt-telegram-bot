@@ -14,7 +14,7 @@ class UserConfig:
       dynamodb = boto3.resource("dynamodb")
       self.table = dynamodb.Table("user-configurations")
 
-    def read(self, user_id: int):
+    def read(self, user_id: int) -> dict:
       try:
         resp = self.table.get_item(Key = { "user_id" : user_id })
         if "Item" in resp:
@@ -27,7 +27,7 @@ class UserConfig:
     def write(self, user_id: int, config):  
       self.table.put_item(Item={"user_id": user_id, "config": json.dumps(config)})
 
-    def create_config(self, user_id: int):
+    def create_config(self, user_id: int) -> dict:
       return {
         "user_id": user_id,
         "config": {
