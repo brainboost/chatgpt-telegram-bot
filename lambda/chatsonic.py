@@ -1,5 +1,6 @@
-import uuid
 import logging
+import uuid
+
 import boto3
 from Conversation import Conversation
 
@@ -8,7 +9,7 @@ logging.getLogger().setLevel("INFO")
 
 class ChatSonic:
     def __init__(self) -> None:
-        _ssm_client = boto3.Session(profile_name="orwell").client(service_name="ssm")
+        _ssm_client = boto3.client(service_name="ssm")
         token = _ssm_client.get_parameter(Name="CHATSONIC_TOKEN")["Parameter"]["Value"]
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())

@@ -4,3 +4,4 @@ websockets
 requests
 boto3
 wget
+markdown

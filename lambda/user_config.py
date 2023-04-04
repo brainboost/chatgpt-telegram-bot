@@ -3,7 +3,6 @@ import logging
 import time
 
 import boto3
-from engines import Engines
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -25,14 +24,12 @@ class UserConfig:
         logging.error(e)
 
     def write(self, user_id: int, config):  
-      self.table.put_item(Item={"user_id": user_id, "config": json.dumps(config)})
+      self.table.put_item(
+        Item={"user_id": user_id, "config": json.dumps(config)})
 
     def create_config(self, user_id: int):
       return {
-        "user_id": user_id,
-        "config": {
           "plaintext": False,
-          "engine": Engines.BING,
+          "engine": "bing",
           "updated": int(time.time()),
         }
-      }

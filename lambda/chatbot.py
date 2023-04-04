@@ -4,7 +4,6 @@ import logging
 
 import boto3
 from bing_gpt import BingGpt
-from engines import Engines
 from telegram import Update, constants
 from telegram.ext import (
     Application,
@@ -15,6 +14,25 @@ from telegram.ext import (
 )
 from user_config import UserConfig
 from utils import generate_transcription
+
+example_tg = '''
+*bold \*text*
+_italic \*text_
+__underline__
+~strikethrough~
+||spoiler||
+*bold _italic bold ~italic bold strikethrough ||italic bold strikethrough spoiler||~ __underline italic bold___ bold*
+[inline URL](http://www.example.com/)
+[inline mention of a user](tg://user?id=123456789)
+`inline fixed-width code`
+```
+pre-formatted fixed-width code block
+```
+```python
+pre-formatted fixed-width code block written in the Python programming language
+```
+text with links. And dots. \[[1](https://pypi.org/project/adaptivecards/)\]  [\[2\]](https://github.com/huuhoa/adaptivecards)
+'''
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -38,22 +56,31 @@ async def reset(update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def set_engine(update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.message.from_user.id
+    logging.info(f"user_id: {user_id}")
     config = user_config.create_config(user_id)
-    config["engine"] = f"{Engines[update.message.text]}"
+    logging.info(f"config: {config}")
+    engine = update.message.text.strip("/").lower()
+    logging.info(f"engine: {engine}")
+    config["engine"] = engine
+    logging.info(f"config: {config}")
     user_config.write(user_id, config)
-    await context.bot.send_message(
-        chat_id=update.message.chat_id, text="AI engine has been set"
+    await update.message.reply_text(
+        text=f"Bot engine has been set to {engine}"
     )
 
-async def set_plaintext(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    config = user_config.create_config(user_id)
-    config["plaintext"] = update.message.text
+async def set_plaintext(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    config = user_config.read(user_id)
+    config["plaintext"] = "plaintext" in update.message.text.lower()
     user_config.write(user_id, config)
-    await context.bot.send_message(
-        chat_id=update.message.chat_id, 
-        text=f"'Output in plaintext' has been set to '{update.message.text}'"
+    await update.message.reply_text(
+        text=f"Option 'plaintext' was set to {config['plaintext']}"
     )
+
+async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await update.message.reply_markdown_v2(
+        text=BingGpt.escape_markdown_v2(text=example_tg), 
+        disable_web_page_preview=True)
 
 
 # Telegram handlers
@@ -89,19 +116,21 @@ async def process_message(update, context: ContextTypes.DEFAULT_TYPE):
 
 # @send_typing_action
 async def processing_internal(update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.message.chat_id
+    # chat_id = update.message.chat_id
     chat_text = update.message.text.replace(bot.name, "")
     try:
         user_id = int(update.message.from_user.id)
         config = user_config.read(user_id)
-        response_msg = await bing.ask(chat_text, config)
-        # logging.info(f"{response_msg}")
-        await context.bot.send_message(
-            chat_id=chat_id,
-            allow_sending_without_reply=True,
-            text=response_msg,
-            parse_mode=constants.ParseMode.MARKDOWN_V2,
-        )
+        response = await bing.ask(chat_text, config)
+        if "plaintext" in config is True:
+            await update.message.reply_text(
+                text=BingGpt.read_plain_text(response=response),
+                disable_notification=True)
+        else:
+            await update.message.reply_markdown_v2(
+                text=BingGpt.read_markdown(response=response),
+                disable_notification=True,
+                disable_web_page_preview=True)
     except Exception as e:
         logging.error(e)
 
@@ -113,12 +142,15 @@ def message_handler(event, context):
 
 
 async def main(event):
-    app.add_handler(MessageHandler(filters.TEXT, process_message))
-    app.add_handler(MessageHandler(filters.CHAT, process_message))
-    app.add_handler(MessageHandler(filters.VOICE, process_voice_message))
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
-    app.add_handler(CommandHandler("engine", set_engine, filters=filters.COMMAND))
-    app.add_handler(CommandHandler("plaintext", set_plaintext, filters=filters.COMMAND))
+    app.add_handler(CommandHandler(["bing", "chatgpt", "chatsonic", "bard"], set_engine,
+        filters=filters.COMMAND))
+    app.add_handler(CommandHandler(["plaintext", "markdown"], set_plaintext,
+        filters=filters.COMMAND))
+    app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
+    app.add_handler(MessageHandler(filters.TEXT, process_message))
+    # app.add_handler(MessageHandler(filters.CHAT, process_message))
+    app.add_handler(MessageHandler(filters.VOICE, process_voice_message))
     try:
         await app.initialize()
         await app.process_update(Update.de_json(json.loads(event["body"]), bot))

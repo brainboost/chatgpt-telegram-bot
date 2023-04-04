@@ -1,10 +1,11 @@
 import json
 import logging
+import re
 import uuid
 
 import boto3
+import markdown
 from EdgeGPT import Chatbot
-from telegram import constants, helpers
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -23,12 +24,10 @@ class BingGpt:
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
 
-    async def ask(self, text, userConfig: dict) -> str:
+    async def ask(self, text: str, userConfig: dict) -> str:
         response = await self.chatbot.ask(prompt=text)
-        # logging.info(json.dumps(response, default=vars))
-        if "plaintext" in userConfig is True:
-            return self.read_plain_text(response)
-        return self.read_markdown(response)
+        logging.info(json.dumps(response, default=vars))
+        return response
 
     async def close(self):
         await self.chatbot.close()
@@ -40,10 +39,38 @@ class BingGpt:
         file_content = response["Body"].read().decode("utf-8")
         return json.loads(file_content)
 
-    def read_plain_text(self, response: dict) -> str:
-        return response["item"]["messages"][1]["text"]
+    @classmethod
+    def read_plain_text(cls, response: dict) -> str:
+        return BingGpt.remove_links(text=response["item"]["messages"][1]["text"])
 
-    def read_markdown(self, response: dict) -> str:
+    @classmethod
+    def read_markdown(cls, response: dict) -> str:
         message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
-        return helpers.escape_markdown(message, 2, constants.ParseMode.MARKDOWN_V2)
+        text = BingGpt.replace_references(text=message)
+        return BingGpt.escape_markdown_v2(text=text)
 
+    @classmethod
+    def read_html(cls, response: dict) -> str:
+        message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
+        text = BingGpt.replace_references(text=message)
+        return markdown.markdown(text=text)
+   
+    @classmethod
+    def replace_references(cls, text: str) -> str:
+        ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
+        ref_links = re.findall(pattern=ref_link_pattern, string=text)
+        for link in ref_links:
+            link_label = link[0]
+            link_ref = link[1]
+            inline_link = f" [\[{link_label}\]]({link_ref})"
+            text = re.sub(pattern=rf"\[\^{link_label}\^\]\[\d+\]", 
+                repl=inline_link, string=text)
+        return re.sub(pattern=ref_link_pattern, repl="", string=text)
+
+    @classmethod
+    def remove_links(cls, text: str) -> str:
+        return re.sub(pattern=r"\[\^\d+\^\]\s?", repl="", string=text)
+
+    @classmethod
+    def escape_markdown_v2(cls, text: str) -> str:
+        return re.sub(f"([{re.escape(r'.')}])", r"\\\1", text)
