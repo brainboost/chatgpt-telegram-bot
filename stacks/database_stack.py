@@ -18,3 +18,18 @@ class DatabaseStack(Stack):
             removal_policy=RemovalPolicy.RETAIN,
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST
         )
+        
+        dynamodb.Table(
+            self, "conversations-table",
+            table_name="conversations",
+            partition_key=dynamodb.Attribute(
+                name="conversation_id",
+                type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="user_id",
+                type=dynamodb.AttributeType.NUMBER
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST
+        )

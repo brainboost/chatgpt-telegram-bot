@@ -13,7 +13,7 @@ from telegram.ext import (
     filters,
 )
 from user_config import UserConfig
-from utils import generate_transcription
+from utils import generate_transcription, send_typing_action
 
 example_tg = '''
 *bold \*text*
@@ -114,7 +114,7 @@ async def process_message(update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(e)
 
 
-# @send_typing_action
+@send_typing_action
 async def processing_internal(update, context: ContextTypes.DEFAULT_TYPE):
     # chat_id = update.message.chat_id
     chat_text = update.message.text.replace(bot.name, "")

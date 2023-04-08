@@ -10,8 +10,10 @@ from EdgeGPT import Chatbot
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
-
 class BingGpt:
+    ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
+    esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()')}])(?!\|)")
+
     def __init__(self) -> None:
         _ssm_client = boto3.client(service_name="ssm")
         s3_path = _ssm_client.get_parameter(Name="COOKIES_FILE")["Parameter"]["Value"]
@@ -46,8 +48,7 @@ class BingGpt:
     @classmethod
     def read_markdown(cls, response: dict) -> str:
         message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
-        text = BingGpt.replace_references(text=message)
-        return BingGpt.escape_markdown_v2(text=text)
+        return BingGpt.replace_references(text=message)
 
     @classmethod
     def read_html(cls, response: dict) -> str:
@@ -57,15 +58,16 @@ class BingGpt:
    
     @classmethod
     def replace_references(cls, text: str) -> str:
-        ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-        ref_links = re.findall(pattern=ref_link_pattern, string=text)
+        ref_links = re.findall(pattern=cls.ref_link_pattern, string=text)
+        text = re.sub(pattern=cls.ref_link_pattern, repl="", string=text)
+        text = BingGpt.escape_markdown_v2(text=text)
         for link in ref_links:
             link_label = link[0]
             link_ref = link[1]
             inline_link = f" [\[{link_label}\]]({link_ref})"
             text = re.sub(pattern=rf"\[\^{link_label}\^\]\[\d+\]", 
                 repl=inline_link, string=text)
-        return re.sub(pattern=ref_link_pattern, repl="", string=text)
+        return text
 
     @classmethod
     def remove_links(cls, text: str) -> str:
@@ -73,4 +75,4 @@ class BingGpt:
 
     @classmethod
     def escape_markdown_v2(cls, text: str) -> str:
-        return re.sub(f"([{re.escape(r'.')}])", r"\\\1", text)
+        return re.sub(pattern=cls.esc_pattern, repl=r"\\\1", string=text)

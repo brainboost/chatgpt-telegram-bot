@@ -1,28 +1,42 @@
-import uuid
-import os
 import json
+import logging
+import os
+import uuid
+from functools import wraps
+
 import boto3
 import wget
-import logging
 from telegram import constants
-from functools import wraps
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 
-async def send_typing_action(func):
-    """Sends typing action while processing func command."""
+def send_action(action):
+    """Sends `action` while processing func command."""
 
-    @wraps(func)
-    async def command_func(update, context, *args, **kwargs):
-        await context.bot.send_chat_action(
-            chat_id=update.effective_message.chat_id, action=constants.ChatAction.TYPING
-        )
-        return func(update, context, *args, **kwargs)
+    def decorator(func):
+        @wraps(func)
+        async def command_func(update, context, *args, **kwargs):
+            await context.bot.send_chat_action(chat_id=update.effective_message.chat_id, 
+            action=action)
+            return await func(update, context,  *args, **kwargs)
+        return command_func
+    
+    return decorator
 
-    return command_func
+send_typing_action = send_action(constants.ChatAction.TYPING)
+# async def send_typing_action(func):
+#     """Sends typing action while processing func command."""
 
+#     @wraps(func)
+#     async def command_func(update, context, *args, **kwargs):
+#         await context.bot.send_chat_action(
+#             chat_id=update.effective_message.chat_id, action=constants.ChatAction.TYPING
+#         )
+#         return func(update, context, *args, **kwargs)
+
+#     return command_func
 
 def generate_transcription(file):
     s3_client = boto3.client("s3")
