@@ -52,7 +52,6 @@ class ChatGPT:
             message = "..."
             logging.error(f"Request:{data}, Response:{response}")
         else:
-            # logging.info(response.text)
             result = response.json()
             self.parent_id = result["id"]
             self.conversation_id = result["conversation_id"]

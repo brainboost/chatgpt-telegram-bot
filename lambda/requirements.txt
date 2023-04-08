@@ -1,5 +1,6 @@
 python-telegram-bot~=20.1
 git+https://github.com/brainboost/EdgeGPT.git
+GoogleBard
 websockets
 requests
 boto3
