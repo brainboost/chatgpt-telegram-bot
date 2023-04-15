@@ -15,7 +15,7 @@ class ChatgptBotStack(Stack):
 
         lambda_role = iam.Role(
             self,
-            "BotRole",
+            "ChatBotRole",
             assumed_by=iam.ServicePrincipal("lambda.amazonaws.com"),
             managed_policies=[
                 iam.ManagedPolicy.from_aws_managed_policy_name(
@@ -31,8 +31,8 @@ class ChatgptBotStack(Stack):
 
         self.bucket = s3.Bucket(
             self,
-            f"{construct_id}-Bucket",
-            bucket_name=f"{construct_id}-s3-bucket".lower(),
+            f"{construct_id}-s3-Bucket",
+            bucket_name=f"{construct_id}-s3-bucket-temp".lower(),
             removal_policy=_removalpolicy.DESTROY,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,
             versioned=True,

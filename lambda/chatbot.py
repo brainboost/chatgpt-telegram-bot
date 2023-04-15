@@ -2,9 +2,11 @@ import asyncio
 import json
 import logging
 
-import boto3
+import utils
+from bard_engine import BardEngine
 from bing_gpt import BingGpt
-from telegram import Update, constants
+from engine_interface import EngineInterface
+from telegram import Update
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -13,7 +15,6 @@ from telegram.ext import (
     filters,
 )
 from user_config import UserConfig
-from utils import generate_transcription, send_typing_action
 
 example_tg = '''
 *bold \*text*
@@ -36,36 +37,47 @@ text with links. And dots. \[[1](https://pypi.org/project/adaptivecards/)\]  [\[
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
-bing = BingGpt()
-user_config = UserConfig()
 
-telegram_token = boto3.client(service_name="ssm").get_parameter(Name="TELEGRAM_TOKEN")[
-    "Parameter"
-]["Value"]
+user_config = UserConfig()
+engines = {}
+
+telegram_token = utils.read_ssm_param(param_name="TELEGRAM_TOKEN")
 app = Application.builder().token(token=telegram_token).build()
 bot = app.bot
 logging.info("application startup")
 
 # Telegram commands
 
-async def reset(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    bing.reset_chat()
-    await context.bot.send_message(
-        chat_id=update.message.chat_id, text="Conversation has been reset"
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    config = user_config.read(user_id)
+    engine = get_engine(config)
+    engine.reset_chat()
+    await update.message.reply_text(
+        text="Conversation has been reset"
     )
 
-async def set_engine(update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.message.from_user.id
-    logging.info(f"user_id: {user_id}")
-    config = user_config.create_config(user_id)
-    logging.info(f"config: {config}")
-    engine = update.message.text.strip("/").lower()
-    logging.info(f"engine: {engine}")
-    config["engine"] = engine
-    logging.info(f"config: {config}")
+async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    config = user_config.read(user_id)
+    style = update.message.text.strip("/").lower()
+    config["style"] = style
+    logging.info(f"user: {user_id} set engine style to: '{style}'")
     user_config.write(user_id, config)
     await update.message.reply_text(
-        text=f"Bot engine has been set to {engine}"
+        text=f"Bot engine style has been set to '{style}'"
+    )
+
+async def set_engine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    config = user_config.read(user_id)
+    engine_type = update.message.text.strip("/").lower()
+    logging.info(f"engine: {engine_type}")
+    config["engine"] = engine_type
+    logging.info(f"user: {user_id} set engine to: {engine_type}")
+    user_config.write(user_id, config)
+    await update.message.reply_text(
+        text=f"Bot engine has been set to {engine_type}"
     )
 
 async def set_plaintext(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -85,54 +97,66 @@ async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 # Telegram handlers
 
-# @send_typing_action
-async def process_voice_message(update, context: ContextTypes.DEFAULT_TYPE):
+async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     voice_message = update.message.voice
     file_id = voice_message.file_id
     file = await bot.get_file(file_id)
-    transcript_msg = generate_transcription(file)
+    transcript_msg = utils.generate_transcription(file)
     logging.info(transcript_msg)
-    user_id = int(update.message.from_user.id)
-    config = user_config.read(user_id)
-    message = await bing.ask(transcript_msg, config)
-    chat_id = update.message.chat_id
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=message,
-        parse_mode=constants.ParseMode.MARKDOWN_V2,
-    )
-
-
-async def process_message(update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text is None:
-        return
-    if bot.name not in update.message.text and "group" in update.message.chat.type:
-        return
     try:
-        await processing_internal(update, context)
-    except Exception as e:
-        logging.error(e)
-
-
-@send_typing_action
-async def processing_internal(update, context: ContextTypes.DEFAULT_TYPE):
-    # chat_id = update.message.chat_id
-    chat_text = update.message.text.replace(bot.name, "")
-    try:
-        user_id = int(update.message.from_user.id)
+        user_id = int(update.effective_message.from_user.id)
         config = user_config.read(user_id)
-        response = await bing.ask(chat_text, config)
-        if "plaintext" in config is True:
-            await update.message.reply_text(
-                text=BingGpt.read_plain_text(response=response),
-                disable_notification=True)
-        else:
-            await update.message.reply_markdown_v2(
-                text=BingGpt.read_markdown(response=response),
-                disable_notification=True,
-                disable_web_page_preview=True)
+        engine = get_engine(config)
+        await process_internal(engine, config, update, context)
     except Exception as e:
         logging.error(e)
+
+
+async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_message is None:
+        logging.info(update)
+        return
+    if bot.name not in update.effective_message.text: 
+        # and update.effective_message.chat.type == constants.ChatType.GROUP:
+        return
+    try:
+        user_id = int(update.effective_user.id)
+        config = user_config.read(user_id)
+        engine = get_engine(config)
+        await process_internal(update, context, engine, config)
+    except Exception as e:
+        logging.error(e)
+
+
+@utils.send_typing_action
+async def process_internal(update: Update, context: ContextTypes.DEFAULT_TYPE,
+    engine: EngineInterface, config: UserConfig):
+    chat_text = update.effective_message.text.replace(bot.name, "")
+    response = await engine.ask_async(chat_text, config)
+
+    if "plaintext" in config is True:
+        await update.effective_message.reply_text(
+            text=response,
+            disable_notification=True,
+            disable_web_page_preview=True)
+    else:
+        await update.effective_message.reply_markdown_v2(
+            text=response,
+            disable_notification=True,
+            disable_web_page_preview=True)
+
+
+def get_engine(config: UserConfig) -> EngineInterface:
+    engine_type = config["engine"]
+    if engine_type in engines:
+        return engines[engine_type]
+    engine: EngineInterface = None
+    if engine_type == "bing":
+        engine = BingGpt.create()
+    elif engine_type == "bard":
+        engine = BardEngine.create()
+    engines[engine_type] = engine
+    return engine
 
 
 # Lambda message handler
@@ -147,14 +171,14 @@ async def main(event):
         filters=filters.COMMAND))
     app.add_handler(CommandHandler(["plaintext", "markdown"], set_plaintext,
         filters=filters.COMMAND))
+    app.add_handler(CommandHandler(["creative", "balanced", "precise"], set_style, 
+        filters=filters.COMMAND))
     app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
-    app.add_handler(MessageHandler(filters.TEXT, process_message))
-    # app.add_handler(MessageHandler(filters.CHAT, process_message))
+    app.add_handler(MessageHandler(filters.ALL, process_message))
     app.add_handler(MessageHandler(filters.VOICE, process_voice_message))
     try:
         await app.initialize()
         await app.process_update(Update.de_json(json.loads(event["body"]), bot))
-
         return {"statusCode": 200, "body": "Success"}
 
     except Exception as ex:

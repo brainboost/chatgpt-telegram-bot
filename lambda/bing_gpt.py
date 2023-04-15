@@ -4,35 +4,54 @@ import re
 import uuid
 
 import boto3
-import markdown
+import utils
+from conversation_history import ConversationHistory
 from EdgeGPT import Chatbot
+from engine_interface import EngineInterface
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
-class BingGpt:
-    ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-    esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()')}])(?!\|)")
-
-    def __init__(self) -> None:
-        _ssm_client = boto3.client(service_name="ssm")
-        s3_path = _ssm_client.get_parameter(Name="COOKIES_FILE")["Parameter"]["Value"]
+class BingGpt(EngineInterface):
+    
+    def __init__(self, chatbot: Chatbot) -> None:
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
-        cookies = self.read_cookies(s3_path)
-        self.chatbot = Chatbot(cookies=cookies)
+        self.chatbot = chatbot
+        self.history = ConversationHistory()
 
     def reset_chat(self) -> None:
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
+        self.chatbot.reset()
 
-    async def ask(self, text: str, userConfig: dict) -> str:
-        response = await self.chatbot.ask(prompt=text)
-        logging.info(json.dumps(response, default=vars))
-        return response
-
+    async def ask_async(self, text: str, userConfig: dict) -> str:
+        style = userConfig.get("style", "balanced")
+        response = await self.chatbot.ask(prompt=text, 
+            conversation_style=style)
+        item = response["item"]
+        self.conversation_id = item["conversationId"]
+        try:
+            await self.history.write_async( 
+                conversation_id=self.conversation_id, 
+                request_id=item["requestId"],
+                user_id=userConfig["user_id"], 
+                conversation=item)
+        except Exception as e:
+            logging.error(f"conversation_id: {self.conversation_id}, error: {e}")
+        finally:
+            logging.info(json.dumps(response, default=vars))
+        
+        if "plaintext" in userConfig is True:
+            return utils.read_plain_text(response)
+        return BingGpt.read_markdown(response)
+    
     async def close(self):
         await self.chatbot.close()
+
+    @property
+    def engine_type(self):
+        return "bing"
 
     def read_cookies(self, s3_path) -> dict:
         s3 = boto3.client("s3")
@@ -42,37 +61,20 @@ class BingGpt:
         return json.loads(file_content)
 
     @classmethod
+    def create(cls) -> EngineInterface:
+        s3_path = utils.read_ssm_param(param_name="COOKIES_FILE")
+        bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
+        chatbot = Chatbot(cookies=utils.read_json_from_s3(bucket_name, file_name))
+        bing = BingGpt(chatbot)
+        return bing
+
+    @classmethod
     def read_plain_text(cls, response: dict) -> str:
-        return BingGpt.remove_links(text=response["item"]["messages"][1]["text"])
+        return re.sub(pattern=cls.remove_links_pattern, repl="", 
+            string=response["item"]["messages"][1]["text"])
 
     @classmethod
     def read_markdown(cls, response: dict) -> str:
         message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
-        return BingGpt.replace_references(text=message)
+        return utils.replace_references(text=message)
 
-    @classmethod
-    def read_html(cls, response: dict) -> str:
-        message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
-        text = BingGpt.replace_references(text=message)
-        return markdown.markdown(text=text)
-   
-    @classmethod
-    def replace_references(cls, text: str) -> str:
-        ref_links = re.findall(pattern=cls.ref_link_pattern, string=text)
-        text = re.sub(pattern=cls.ref_link_pattern, repl="", string=text)
-        text = BingGpt.escape_markdown_v2(text=text)
-        for link in ref_links:
-            link_label = link[0]
-            link_ref = link[1]
-            inline_link = f" [\[{link_label}\]]({link_ref})"
-            text = re.sub(pattern=rf"\[\^{link_label}\^\]\[\d+\]", 
-                repl=inline_link, string=text)
-        return text
-
-    @classmethod
-    def remove_links(cls, text: str) -> str:
-        return re.sub(pattern=r"\[\^\d+\^\]\s?", repl="", string=text)
-
-    @classmethod
-    def escape_markdown_v2(cls, text: str) -> str:
-        return re.sub(pattern=cls.esc_pattern, repl=r"\\\1", string=text)
