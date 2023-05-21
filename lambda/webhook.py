@@ -11,7 +11,7 @@ logging.getLogger().setLevel("INFO")
 async def set_webhook():
     _ssm_client = boto3.client(service_name="ssm")
     token = _ssm_client.get_parameter(Name="TELEGRAM_TOKEN")["Parameter"]["Value"]
-    url = _ssm_client.get_parameter(Name="LAMBDA_URL")["Parameter"]["Value"]
+    url = _ssm_client.get_parameter(Name="BOT_LAMBDA_URL")["Parameter"]["Value"]
     secret = _ssm_client.get_parameter(Name="SECRET_TOKEN")["Parameter"]["Value"]
     application = Application.builder().token(token=token).build()
     try:
