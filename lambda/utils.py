@@ -15,7 +15,7 @@ logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()')}])(?!\|)")
+esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
 
 
 def send_action(action):

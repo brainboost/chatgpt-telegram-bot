@@ -1,5 +1,6 @@
 git+https://github.com/brainboost/EdgeGPT.git
 GoogleBard
+BingImageCreator
 websockets
 requests
 boto3

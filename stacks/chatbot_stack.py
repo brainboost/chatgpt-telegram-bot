@@ -135,6 +135,7 @@ class ChatBotStack(Stack):
             visibility_timeout=Duration.seconds(900),
             removal_policy=RemovalPolicy.DESTROY,
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            enforce_ssl=True,
         )
         result_queue.add_to_resource_policy(
             aws_iam.PolicyStatement(

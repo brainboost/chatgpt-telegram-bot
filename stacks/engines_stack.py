@@ -62,10 +62,6 @@ class EnginesStack(Stack):
             compatible_runtimes=[_lambda.Runtime.PYTHON_3_9],
         )
 
-        # AI Engines Lambdas
-
-        # Bing
-
         request_dlq = aws_sqs.Queue(
             self,
             "Request-Queues-DLQ",
@@ -73,14 +69,17 @@ class EnginesStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             retention_period=Duration.days(3),
-        )
-        request_dlq.add_to_resource_policy(
-            self.get_enforce_ssl_policy(request_dlq.queue_arn)
+            enforce_ssl=True,
         )
         self.dlq = aws_sqs.DeadLetterQueue(
             max_receive_count=1,
             queue=request_dlq,
         )
+
+        # AI Engines Lambdas
+
+        # Bing
+
         bing_queue = aws_sqs.Queue(
             self,
             "Bing-Request-Queue",
@@ -89,15 +88,16 @@ class EnginesStack(Stack):
             visibility_timeout=Duration.seconds(900),
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             dead_letter_queue=self.dlq,
-        )
-        bing_queue.add_to_resource_policy(
-            self.get_enforce_ssl_policy(bing_queue.queue_arn)
+            enforce_ssl=True,
         )
         request_topic.add_subscription(
             aws_sns_subscriptions.SqsSubscription(
                 queue=bing_queue,
                 raw_message_delivery=True,
                 filter_policy={
+                    "type": aws_sns.SubscriptionFilter.string_filter(
+                        allowlist=["text"]
+                    ),
                     "engines": aws_sns.SubscriptionFilter.string_filter(
                         allowlist=["bing"]
                     ),
@@ -120,18 +120,41 @@ class EnginesStack(Stack):
             aws_lambda_event_sources.SqsEventSource(bing_queue)
         )
 
-    def get_enforce_ssl_policy(self, queue_arn):
-        return aws_iam.PolicyStatement(
-            sid="Enforce TLS for all principals",
-            effect=aws_iam.Effect.DENY,
-            principals=[
-                aws_iam.AnyPrincipal(),
-            ],
-            actions=[
-                "sqs:*",
-            ],
-            resources=[queue_arn],
-            conditions={
-                "Bool": {"aws:SecureTransport": "false"},
-            },
+        # Dall-e
+
+        dalee_queue = aws_sqs.Queue(
+            self,
+            "Dalle-Request-Queue",
+            queue_name="Dalle-Request-Queue",
+            removal_policy=RemovalPolicy.DESTROY,
+            visibility_timeout=Duration.seconds(900),
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            dead_letter_queue=self.dlq,
+            enforce_ssl=True,
+        )
+        request_topic.add_subscription(
+            aws_sns_subscriptions.SqsSubscription(
+                queue=dalee_queue,
+                raw_message_delivery=True,
+                filter_policy={
+                    "type": aws_sns.SubscriptionFilter.string_filter(
+                        allowlist=["images"]
+                    ),
+                },
+            )
+        )
+        dalle_handler = PythonFunction(
+            self,
+            "DalleHandler",
+            entry=ASSET_PATH,
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            index="dalle_img.py",
+            handler="sqs_handler",
+            layers=[lambda_layer],
+            timeout=Duration.minutes(5),
+            role=lambda_role,
+            dead_letter_queue=request_dlq,
+        )
+        dalle_handler.add_event_source(
+            aws_lambda_event_sources.SqsEventSource(dalee_queue)
         )

@@ -97,13 +97,25 @@ async def set_plaintext(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     )
 
 
+@utils.send_typing_action
 async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     update.message.text = example_tg
     await process_message(update, context)
 
 
+@utils.send_typing_action
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await process_message(update, context)
+
+
+async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        user_id = int(update.message.from_user.id)
+        config = user_config.read(user_id)
+        logging.info(context.args)
+        await __process_images(update, context, config)
+    except Exception as e:
+        logging.error(e)
 
 
 # Telegram handlers
@@ -118,22 +130,12 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         user_id = int(update.effective_message.from_user.id)
         config = user_config.read(user_id)
-        await process_internal(update, context, config)
+        await __process_text(update, context, config)
     except Exception as e:
         logging.error(e)
 
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # if update.message is None or update.message.text is None:
-    #     return
-    # if update.effective_message is None:
-    #     logging.info(update)
-    #     return
-    # if (
-    #     bot.name not in update.effective_message.text
-    #     and "group" in update.effective_message.chat.type
-    # ):
-    #     return
     if update.message.text is None:
         return
     if bot.name not in update.message.text and "group" in update.message.chat.type:
@@ -141,20 +143,20 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = int(update.message.from_user.id)
         config = user_config.read(user_id)
-        await process_internal(update, context, config)
+        await __process_text(update, context, config)
     except Exception as e:
         logging.error(e)
 
 
 @utils.send_typing_action
-async def process_internal(
+async def __process_text(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     config: UserConfig,
 ):
     chat_text = update.effective_message.text.replace(bot.name, "")
     envelop = {
-        "type": "message",
+        "type": "text",
         "user_id": update.effective_user.id,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
@@ -171,10 +173,44 @@ async def process_internal(
             TopicArn=sns_topic,
             Message=json.dumps(envelop),
             MessageAttributes={
+                "type": {"DataType": "String", "StringValue": envelop["type"]},
                 "engines": {
                     "DataType": "String.Array",
                     "StringValue": engines,
-                }
+                },
+            },
+        )
+    except Exception as e:
+        logging.error(e)
+
+
+@utils.send_typing_action
+async def __process_images(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    config: UserConfig,
+):
+    prompt = " ".join(context.args)
+    logging.info(prompt)
+    envelop = {
+        "type": "images",
+        "user_id": update.effective_user.id,
+        "update_id": update.update_id,
+        "message_id": update.effective_message.id,
+        "text": prompt,
+        "chat_id": update.effective_chat.id,
+        "timestamp": update.effective_message.date.timestamp(),
+        "config": config,
+    }
+    logging.info(envelop)
+    engines = json.dumps(config["engines"])
+    logging.info(engines)
+    try:
+        sns.publish(
+            TopicArn=sns_topic,
+            Message=json.dumps(envelop),
+            MessageAttributes={
+                "type": {"DataType": "String", "StringValue": envelop["type"]},
             },
         )
     except Exception as e:
@@ -210,6 +246,8 @@ async def _main(event):
     )
     app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
+
     app.add_handler(MessageHandler(filters.ALL, process_message))
     app.add_handler(MessageHandler(filters.VOICE, process_voice_message))
     try:

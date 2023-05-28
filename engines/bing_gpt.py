@@ -18,7 +18,7 @@ class BingGpt(EngineInterface):
     def __init__(self, chatbot: Chatbot) -> None:
         self.remove_links_pattern = re.compile(r"\[\^\d+\^\]\s?")
         self.ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-        self.esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()')}])(?!\|)")
+        self.esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
         self.conversation_id = None
         self.parent_id = str(uuid.uuid4())
         self.chatbot = chatbot
