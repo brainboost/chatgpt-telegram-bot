@@ -1,11 +1,41 @@
 #!/usr/bin/env python3
+import os
 
 import aws_cdk as cdk
 
-from stacks.chatgpt_bot_stack import ChatgptBotStack
+from stacks.chatbot_stack import ChatBotStack
 from stacks.database_stack import DatabaseStack
+from stacks.engines_stack import EnginesStack
 
 app = cdk.App()
-botStack = ChatgptBotStack(app, "ChatgptBotStack")
-databaseStack = DatabaseStack(app, "DatabaseStack")
+
+env = cdk.Environment(
+    account=os.environ["CDK_DEFAULT_ACCOUNT"], region=os.environ["CDK_DEFAULT_REGION"]
+)
+stage = os.environ.get("STAGE", "dev")
+
+engStack = EnginesStack(
+    scope=app,
+    construct_id="EnginesStack",
+    description="A stack that creates lambda functions working with AI engines APIs",
+    env=env,
+)
+
+databaseStack = DatabaseStack(
+    scope=app,
+    construct_id="DatabaseStack",
+    description="A stack containing database",
+    env=env,
+)
+
+botStack = ChatBotStack(
+    scope=app,
+    construct_id="ChatBotStack",
+    description="A stack containing telegram bot lambda",
+    env=env,
+    stage=stage,
+)
+botStack.add_dependency(engStack)
+botStack.add_dependency(databaseStack)
+
 app.synth()
