@@ -132,7 +132,7 @@ class ChatBotStack(Stack):
             "Result-Queue",
             queue_name="Result-Queue",
             retention_period=Duration.days(3),
-            visibility_timeout=Duration.seconds(900),
+            visibility_timeout=Duration.minutes(1),
             removal_policy=RemovalPolicy.DESTROY,
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             enforce_ssl=True,

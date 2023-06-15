@@ -87,16 +87,6 @@ async def set_engine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(text=f"Bot engine has been set to {engine_type}")
 
 
-async def set_plaintext(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = update.effective_user.id
-    config = user_config.read(user_id)
-    config["plaintext"] = "plaintext" in update.message.text.lower()
-    user_config.write(user_id, config)
-    await update.message.reply_text(
-        text=f"Option 'plaintext' was set to {config['plaintext']}"
-    )
-
-
 @utils.send_typing_action
 async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     update.message.text = example_tg
@@ -232,11 +222,6 @@ async def _main(event):
             ["bing", "chatgpt", "chatsonic", "bard"],
             set_engine,
             filters=filters.COMMAND,
-        )
-    )
-    app.add_handler(
-        CommandHandler(
-            ["plaintext", "markdown"], set_plaintext, filters=filters.COMMAND
         )
     )
     app.add_handler(

@@ -85,7 +85,7 @@ class EnginesStack(Stack):
             "Bing-Request-Queue",
             queue_name="Bing-Request-Queue",
             removal_policy=RemovalPolicy.DESTROY,
-            visibility_timeout=Duration.seconds(900),
+            visibility_timeout=Duration.minutes(3),
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             dead_letter_queue=self.dlq,
             enforce_ssl=True,
@@ -112,12 +112,54 @@ class EnginesStack(Stack):
             index="bing_gpt.py",
             handler="sqs_handler",
             layers=[lambda_layer],
-            timeout=Duration.minutes(5),
+            timeout=Duration.minutes(3),
             role=lambda_role,
             dead_letter_queue=request_dlq,
         )
         bing_handler.add_event_source(
             aws_lambda_event_sources.SqsEventSource(bing_queue)
+        )
+
+        # Bard
+
+        bard_queue = aws_sqs.Queue(
+            self,
+            "Bard-Request-Queue",
+            queue_name="Bard-Request-Queue",
+            removal_policy=RemovalPolicy.DESTROY,
+            visibility_timeout=Duration.minutes(3),
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            dead_letter_queue=self.dlq,
+            enforce_ssl=True,
+        )
+        request_topic.add_subscription(
+            aws_sns_subscriptions.SqsSubscription(
+                queue=bard_queue,
+                raw_message_delivery=True,
+                filter_policy={
+                    "type": aws_sns.SubscriptionFilter.string_filter(
+                        allowlist=["text"]
+                    ),
+                    "engines": aws_sns.SubscriptionFilter.string_filter(
+                        allowlist=["bard"]
+                    ),
+                },
+            )
+        )
+        bard_handler = PythonFunction(
+            self,
+            "BardHandler",
+            entry=ASSET_PATH,
+            runtime=_lambda.Runtime.PYTHON_3_9,
+            index="bard_engine.py",
+            handler="sqs_handler",
+            layers=[lambda_layer],
+            timeout=Duration.minutes(3),
+            role=lambda_role,
+            dead_letter_queue=request_dlq,
+        )
+        bard_handler.add_event_source(
+            aws_lambda_event_sources.SqsEventSource(bard_queue)
         )
 
         # Dall-e
@@ -127,7 +169,7 @@ class EnginesStack(Stack):
             "Dalle-Request-Queue",
             queue_name="Dalle-Request-Queue",
             removal_policy=RemovalPolicy.DESTROY,
-            visibility_timeout=Duration.seconds(900),
+            visibility_timeout=Duration.minutes(3),
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             dead_letter_queue=self.dlq,
             enforce_ssl=True,
@@ -151,7 +193,7 @@ class EnginesStack(Stack):
             index="dalle_img.py",
             handler="sqs_handler",
             layers=[lambda_layer],
-            timeout=Duration.minutes(5),
+            timeout=Duration.minutes(3),
             role=lambda_role,
             dead_letter_queue=request_dlq,
         )

@@ -29,7 +29,6 @@ class UserConfig:
 
     def create_config(self, user_id: int) -> dict:
         return {
-            "plaintext": False,
             "user_id": user_id,
             "engines": ["bing"],
             "updated": int(time.time()),

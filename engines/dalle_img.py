@@ -4,6 +4,7 @@ import logging
 import boto3
 import common_utils as utils
 from BingImageCreator import ImageGen
+from conversation_history import ConversationHistory
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -20,16 +21,23 @@ def create() -> ImageGen:
 imageGen = create()
 results_queue = utils.read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
+history = ConversationHistory()
 
 
 def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        logging.info(payload)
         prompt = payload["text"]
         list: list[str] = []
         if prompt is not None and prompt.strip():
-            list = imageGen.get_images(prompt)
+            try:
+                list = imageGen.get_images(prompt)
+            except Exception as e:
+                if "prompt has been blocked" in str(e):
+                    list = [str(e)]
+                else:
+                    logging.error(e)
+                    logging.info(payload)
         else:
             # for testing purposes
             list = [
@@ -38,6 +46,20 @@ def sqs_handler(event, context):
                 "https://picsum.photos/200#3",
                 "https://picsum.photos/200#4",
             ]
+        payload["response"] = list
+        user_id = payload["user_id"]
+        conversation_id = f"{payload['chat_id']}_{user_id}_{payload['update_id']}"
+        try:
+            history.write(
+                conversation_id=conversation_id,
+                user_id=user_id,
+                conversation=payload,
+            )
+        except Exception as e:
+            logging.error(
+                f"conversation_id: {conversation_id}, error: {e}, item: {payload}"
+            )
+
         logging.info(list)
         message = "\n".join(list)
         payload["response"] = utils.encode_message(message)

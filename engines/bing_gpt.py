@@ -7,7 +7,7 @@ import uuid
 import boto3
 import common_utils as utils
 from conversation_history import ConversationHistory
-from EdgeGPT import Chatbot
+from EdgeGPT.EdgeGPT import Chatbot
 from engine_interface import EngineInterface
 
 logging.basicConfig()
@@ -33,7 +33,11 @@ class BingGpt(EngineInterface):
         if "/ping" in text:
             return "pong"
         style = userConfig.get("style", "creative")
-        response = asyncio.run(self.chatbot.ask(prompt=text, conversation_style=style))
+        response = asyncio.run(
+            self.chatbot.ask(
+                prompt=text, conversation_style=style, simplify_response=False
+            )
+        )
         item = response["item"]
         self.conversation_id = item["conversationId"]
         try:
@@ -44,13 +48,16 @@ class BingGpt(EngineInterface):
                 conversation=item,
             )
         except Exception as e:
-            logging.error(f"conversation_id: {self.conversation_id}, error: {e}")
-        finally:
-            logging.info(json.dumps(response, default=vars))
-
-        if userConfig["plaintext"]:
-            return self.read_plain_text(response)
-        return self.read_markdown(response)
+            logging.error(
+                f"conversation_id: {self.conversation_id}, error: {e}, item: {item}"
+            )
+        try:
+            return self.as_markdown(item)
+        except Exception as e:
+            logging.error(
+                f"conversation_id: {self.conversation_id}, error: {e}, item: {item}"
+            )
+            return self.as_plain_text(item)
 
     def close(self):
         self.chatbot.close()
@@ -66,17 +73,18 @@ class BingGpt(EngineInterface):
         file_content = response["Body"].read().decode("utf-8")
         return json.loads(file_content)
 
-    def read_plain_text(self, response: dict) -> str:
+    def as_plain_text(self, item: dict) -> str:
         return re.sub(
             pattern=self.remove_links_pattern,
             repl="",
-            string=response["item"]["messages"][1]["text"],
+            string=item["messages"][1]["text"],
         )
 
-    def read_markdown(self, response: dict) -> str:
-        message = response["item"]["messages"][1]["adaptiveCards"][0]["body"][0]["text"]
+    def as_markdown(self, item: dict) -> str:
+        message = item["messages"][-1]
         logging.info(message)
-        return self.replace_references(text=message)
+        text = message["adaptiveCards"][0]["body"][0]["text"]
+        return self.replace_references(text)
 
     def replace_references(self, text: str) -> str:
         ref_links = re.findall(pattern=self.ref_link_pattern, string=text)
@@ -101,7 +109,7 @@ class BingGpt(EngineInterface):
         return BingGpt(chatbot)
 
 
-bing = BingGpt.create()
+instance = BingGpt.create()
 results_queue = utils.read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
@@ -112,9 +120,9 @@ def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
         logging.info(payload)
-        response = bing.ask(payload["text"], payload["config"])
+        response = instance.ask(payload["text"], payload["config"])
         logging.info(response)
         payload["response"] = utils.encode_message(response)
-        payload["engine"] = bing.engine_type
+        payload["engine"] = instance.engine_type
         logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
