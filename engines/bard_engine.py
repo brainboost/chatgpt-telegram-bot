@@ -20,7 +20,7 @@ class BardEngine(EngineInterface):
         self.parent_id = str(uuid.uuid4())
         self.chatbot = chatbot
         self.history = ConversationHistory()
-        self.esc_pattern = re.compile(f"([{re.escape(r'.-+#|{}!=()<>[]')}])")
+        self.esc_pattern = re.compile(f"([{re.escape(r'._-+#|{}!=()<>[]')}])")
 
     def reset_chat(self) -> None:
         self.conversation_id = None

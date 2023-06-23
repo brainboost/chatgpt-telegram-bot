@@ -33,8 +33,19 @@ def response_handler(event, context) -> None:
             caption = payload["text"]
             __send_images(chat_id, message_id, message, caption)
         else:
-            text = f"*__{payload['engine']}__*: {message}"
-            __send_text(chat_id, message_id, text)
+            length = len(message)
+            start = 0
+            end = min(4096, length)
+            count = length // 4096 + 1
+            i = 1
+            while start < length:
+                text = (
+                    f"*__{payload['engine']}__*: {i} of {count}\n{message[start:end]}"
+                )
+                __send_text(chat_id, message_id, text)
+                start = end
+                end = min(start + 4096, length)
+                i += 1
 
 
 def __send_text(chat_id: str, message_id: str, text: str) -> None:
