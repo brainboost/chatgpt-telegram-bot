@@ -28,7 +28,7 @@ def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
         prompt = payload["text"]
-        list: list[str] = []
+        list = []
         if prompt is not None and prompt.strip():
             try:
                 list = imageGen.get_images(prompt)
