@@ -20,7 +20,7 @@ class BardEngine(EngineInterface):
         self.parent_id = str(uuid.uuid4())
         self.chatbot = chatbot
         self.history = ConversationHistory()
-        self.esc_pattern = re.compile(f"([{re.escape(r'.-+#|{}!=()<>[]')}])")
+        self.esc_pattern = re.compile(f"([{re.escape(r'._-+#|{}!=()<>[]')}])")
 
     def reset_chat(self) -> None:
         self.conversation_id = None
@@ -31,7 +31,8 @@ class BardEngine(EngineInterface):
         if "/ping" in text:
             return "pong"
         response = self.chatbot.ask(message=text)
-        logging.info(json.dumps(response, default=vars))
+        logging.info(response)
+        # logging.info(json.dumps(response, default=vars))
         self.conversation_id = response["conversation_id"]
         item = response["content"]
         item = self.as_markdown(item)
