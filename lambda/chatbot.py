@@ -79,7 +79,7 @@ async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def set_engine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    engine_type = update.message.text.strip("/").lower()
+    engine_type = update.message.text.strip("/").split()[0].lower()
     logging.info(f"engines: {engine_type}")
     config["engines"] = engine_type
     logging.info(f"user: {user_id} set engine to: {engine_type}")

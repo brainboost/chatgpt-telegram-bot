@@ -82,7 +82,7 @@ class BingGpt(EngineInterface):
 
     def as_markdown(self, item: dict) -> str:
         message = item["messages"][-1]
-        logging.info(message)
+        # logging.info(message)
         text = message["adaptiveCards"][0]["body"][0]["text"]
         return self.replace_references(text)
 
@@ -119,7 +119,7 @@ sqs = boto3.session.Session().client("sqs")
 def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        logging.info(payload)
+        # logging.info(payload)
         response = instance.ask(payload["text"], payload["config"])
         logging.info(response)
         payload["response"] = utils.encode_message(response)

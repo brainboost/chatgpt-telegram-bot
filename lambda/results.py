@@ -11,6 +11,8 @@ from telegram.ext import (
 )
 from user_config import UserConfig
 
+MAX_MESSAGE_SIZE = 4060
+
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
@@ -35,8 +37,8 @@ def response_handler(event, context) -> None:
         else:
             length = len(message)
             start = 0
-            end = min(4096, length)
-            count = length // 4096 + 1
+            end = min(MAX_MESSAGE_SIZE, length)
+            count = length // MAX_MESSAGE_SIZE + 1
             i = 1
             while start < length:
                 text = (
@@ -44,7 +46,7 @@ def response_handler(event, context) -> None:
                 )
                 __send_text(chat_id, message_id, text)
                 start = end
-                end = min(start + 4096, length)
+                end = min(start + MAX_MESSAGE_SIZE, length)
                 i += 1
 
 

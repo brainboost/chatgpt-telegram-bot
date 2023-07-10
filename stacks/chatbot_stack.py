@@ -127,6 +127,21 @@ class ChatBotStack(Stack):
         )
 
         # result SQS queue
+
+        result_dlq = aws_sqs.Queue(
+            self,
+            "Result-Queue-DLQ",
+            queue_name="Result-Queue-DLQ",
+            removal_policy=RemovalPolicy.DESTROY,
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            retention_period=Duration.days(3),
+            enforce_ssl=True,
+        )
+        self.dlq = aws_sqs.DeadLetterQueue(
+            max_receive_count=1,
+            queue=result_dlq,
+        )
+
         result_queue = aws_sqs.Queue(
             self,
             "Result-Queue",
@@ -136,6 +151,7 @@ class ChatBotStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             enforce_ssl=True,
+            dead_letter_queue=self.dlq,
         )
         result_queue.add_to_resource_policy(
             aws_iam.PolicyStatement(
