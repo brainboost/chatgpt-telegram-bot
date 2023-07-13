@@ -31,5 +31,6 @@ class UserConfig:
         return {
             "user_id": user_id,
             "engines": ["bing"],
+            "languages": "PL",
             "updated": int(time.time()),
         }

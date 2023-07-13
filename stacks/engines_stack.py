@@ -245,3 +245,43 @@ class EnginesStack(Stack):
         dalle_handler.add_event_source(
             aws_lambda_event_sources.SqsEventSource(dalee_queue)
         )
+
+        # DeepL
+
+        deepl_queue = aws_sqs.Queue(
+            self,
+            "Deepl-Request-Queue",
+            queue_name="Deepl-Request-Queue",
+            removal_policy=RemovalPolicy.DESTROY,
+            visibility_timeout=Duration.minutes(3),
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            dead_letter_queue=self.dlq,
+            enforce_ssl=True,
+        )
+        request_topic.add_subscription(
+            aws_sns_subscriptions.SqsSubscription(
+                queue=deepl_queue,
+                raw_message_delivery=True,
+                filter_policy={
+                    "type": aws_sns.SubscriptionFilter.string_filter(
+                        allowlist=["translate"]
+                    ),
+                },
+            )
+        )
+        deepl_handler = DockerImageFunction(
+            self,
+            "DeeplHandler",
+            function_name="DeeplHandler",
+            code=DockerImageCode.from_image_asset(
+                directory=docker_path,
+                file="Dockerfile",
+                exclude=["cdk.out"],
+                cmd=["deepl_tr.sqs_handler"],
+            ),
+            timeout=Duration.minutes(3),
+            role=lambda_role,
+        )
+        deepl_handler.add_event_source(
+            aws_lambda_event_sources.SqsEventSource(deepl_queue)
+        )
