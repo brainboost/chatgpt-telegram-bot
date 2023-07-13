@@ -9,14 +9,11 @@ from telegram.error import BadRequest
 from telegram.ext import (
     Application,
 )
-from user_config import UserConfig
 
 MAX_MESSAGE_SIZE = 4060
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
-
-user_config = UserConfig()
 
 telegram_token = utils.read_ssm_param(param_name="TELEGRAM_TOKEN")
 app = Application.builder().token(token=telegram_token).build()
@@ -97,7 +94,7 @@ def __send_images(chat_id: str, message_id: str, message: str, caption: str) -> 
                 bot.send_photo(
                     chat_id=chat_id,
                     photo=url,
-                    caption=caption,
+                    # caption=caption,
                     reply_to_message_id=message_id,
                     disable_notification=True,
                 )

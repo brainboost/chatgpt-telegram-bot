@@ -28,6 +28,7 @@ async def set_webhook():
                     "message",
                     "edited_message",
                     "channel_post",
+                    "callback_query",
                 ],
                 secret_token=secret,
             )

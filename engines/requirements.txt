@@ -2,6 +2,7 @@ EdgeGPT
 GoogleBard
 revChatGPT
 BingImageCreator
+deepl
 websockets
 requests
 boto3

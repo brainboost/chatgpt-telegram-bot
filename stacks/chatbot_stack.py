@@ -116,6 +116,7 @@ class ChatBotStack(Stack):
         result_handler = _lambda.Function(
             self,
             "ResultProcessingHandler",
+            function_name="ResultProcessingHandler",
             code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
             handler="results.response_handler",
             runtime=_lambda.Runtime.PYTHON_3_9,
@@ -173,6 +174,7 @@ class ChatBotStack(Stack):
         lambda_function = _lambda.Function(
             self,
             "BotHandler",
+            function_name="BotHandler",
             code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
             handler="chatbot.telegram_api_handler",
             runtime=_lambda.Runtime.PYTHON_3_9,
