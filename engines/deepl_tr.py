@@ -33,14 +33,12 @@ def sqs_handler(event, context):
                 response = translator.translate_text(
                     payload["text"].replace("/tr", ""), target_lang=lang.strip()
                 )
-                result = re.sub(
-                    pattern=__esc_pattern, repl=r"\\\1", string=response.text
-                )
+                result = re.sub(__esc_pattern, r"\\\1", response.text)
             except Exception as e:
                 logging.error(e)
-                result = str(e)
+                result = re.sub(__esc_pattern, r"\\\1", str(e))
 
-            payload["engine"] = lang
+            payload["engine"] = lang.replace("-", "\-")
             payload["response"] = utils.encode_message(result)
             logging.info(payload)
             sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

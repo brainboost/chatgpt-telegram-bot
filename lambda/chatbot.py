@@ -3,6 +3,7 @@ import json
 import logging
 
 import boto3
+import help_command
 import utils
 from telegram import (
     BotCommand,
@@ -48,7 +49,7 @@ user_config = UserConfig()
 sns = boto3.client("sns")
 
 
-async def set_commands(application: Application):
+async def set_commands(application: Application) -> None:
     await application.bot.set_my_commands(
         [
             BotCommand("/bing", "Switch to Bing AI model"),
@@ -144,22 +145,22 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def tr_start(update: Update, context: CallbackContext) -> int:
     """Starts the conversation and asks the user about target language"""
     reply_keyboard = [
-        ["BG", "CN", "CS", "DA", "NL"],
-        ["EN", "ES", "FI", "FR", "DE"],
-        ["EL", "HU", "ID", "IT", "JP"],
-        ["KO", "LV", "LT", "NO", "PL"],
-        ["PG", "RO", "RU", "SK", "SL"],
-        ["ES", "SV", "TR", "UA"],
+        ["BG", "ZH", "CS", "DA", "NL"],
+        ["EL", "EN-GB", "EN-US", "ES", "ET"],
+        ["FI", "FR", "DE", "HU", "ID"],
+        ["IT", "JP", "KO", "LV", "LT"],
+        ["NO", "PL", "PT", "RO", "RU"],
+        ["SK", "SL", "SV", "TR", "UA"],
     ]
     user_id = update.effective_user.id
     config = user_config.read(user_id)
     await update.message.reply_text(
-        "Choose translation language(s) (separated with comma)",
+        "Choose translation language(s)",
         reply_markup=ReplyKeyboardMarkup(
             reply_keyboard,
             one_time_keyboard=True,
             selective=True,
-            input_field_placeholder=config["languages"].upper(),
+            input_field_placeholder=getattr(config, "languages", "pl,en-gb").upper(),
         ),
     )
     return LANG
@@ -169,7 +170,7 @@ async def tr_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Stores the selected language and asks for a text"""
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    if update.message.text.__len__() is not None or update.message.text.__len__() < 2:
+    if update.message.text is not None:
         config["languages"] = update.message.text.strip().upper()
     await update.message.reply_text(
         "Please send me your text to translate",
@@ -347,6 +348,9 @@ def telegram_api_handler(event, context):
 
 
 async def _main(event):
+    app.add_handler(
+        CommandHandler("start", help_command.start_handler, filters=filters.COMMAND)
+    )
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
@@ -360,13 +364,20 @@ async def _main(event):
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND
         )
     )
-    app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
+    app.add_handler(
+        CommandHandler("help", help_command.help_handler, filters=filters.COMMAND)
+    )
+    # app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("tr", tr_start)],
         states={
-            LANG: [MessageHandler(filters.Regex(r"^([a-zA-Z]{2},*\s*)+$"), tr_lang)],
+            LANG: [
+                MessageHandler(
+                    filters.Regex(r"^([a-zA-Z]{2}(\-[a-zA-Z]{2})*,*\s*)+$"), tr_lang
+                )
+            ],
             TEXT: [MessageHandler(filters.TEXT, tr_text)],
         },
         fallbacks=[CommandHandler("cancel", tr_cancel)],
