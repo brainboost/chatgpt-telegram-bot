@@ -2,24 +2,25 @@ import json
 import logging
 
 import boto3
-import common_utils as utils
 from BingImageCreator import ImageGen
-from conversation_history import ConversationHistory
+
+from .common_utils import encode_message, read_json_from_s3, read_ssm_param
+from .conversation_history import ConversationHistory
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 
 def create() -> ImageGen:
-    s3_path = utils.read_ssm_param(param_name="COOKIES_FILE")
+    s3_path = read_ssm_param(param_name="COOKIES_FILE")
     bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
-    auth_cookies = utils.read_json_from_s3(bucket_name, file_name)
+    auth_cookies = read_json_from_s3(bucket_name, file_name)
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
     return ImageGen(u)
 
 
 imageGen = create()
-results_queue = utils.read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
+results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 history = ConversationHistory()
 
@@ -62,7 +63,7 @@ def sqs_handler(event, context):
 
         logging.info(list)
         message = "\n".join(list)
-        payload["response"] = utils.encode_message(message)
+        payload["response"] = encode_message(message)
         payload["engine"] = "Dall-E"
         logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

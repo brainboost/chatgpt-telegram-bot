@@ -3,8 +3,6 @@ import json
 import logging
 
 import boto3
-import help_command
-import utils
 from telegram import (
     BotCommand,
     ReplyKeyboardMarkup,
@@ -20,7 +18,10 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
-from user_config import UserConfig
+
+from .help_command import help_handler, start_handler
+from .user_config import UserConfig
+from .utils import generate_transcription, read_ssm_param, send_typing_action
 
 example_tg = """
 *bold \*text*
@@ -52,6 +53,9 @@ sns = boto3.client("sns")
 async def set_commands(application: Application) -> None:
     await application.bot.set_my_commands(
         [
+            BotCommand("/start", "Begin with bot, introduction"),
+            BotCommand("/help", "Commands usage. Syntax: /help COMMAND"),
+            BotCommand("/tr", "Translate text to other language(s)"),
             BotCommand("/bing", "Switch to Bing AI model"),
             BotCommand("/bard", "Switch to Google Bard AI model"),
             BotCommand("/chatgpt", "Switch to OpenAI ChatGPT model"),
@@ -59,13 +63,12 @@ async def set_commands(application: Application) -> None:
             BotCommand("/balanced", "Set tone of responses to more balanced"),
             BotCommand("/precise", "Set tone of responses to more precise"),
             BotCommand("/imagine", "Generate images with DALL-E engine"),
-            BotCommand("/tr", "Translate text to other language(s)"),
         ]
     )
 
 
-telegram_token = utils.read_ssm_param(param_name="TELEGRAM_TOKEN")
-sns_topic = utils.read_ssm_param(param_name="REQUESTS_SNS_TOPIC_ARN")
+telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
+sns_topic = read_ssm_param(param_name="REQUESTS_SNS_TOPIC_ARN")
 app = (
     Application.builder()
     .token(token=telegram_token)
@@ -103,17 +106,17 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    style = update.message.text.strip("/").lower()
+    style = update.message.text.strip("/").split("@")[0].lower()
     config["style"] = style
     logging.info(f"user: {user_id} set engine style to: '{style}'")
     user_config.write(user_id, config)
     await update.message.reply_text(text=f"Bot engine style has been set to '{style}'")
 
 
-async def set_engine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def set_engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    engine_type = update.message.text.strip("/").split()[0].lower()
+    engine_type = update.message.text.strip("/").split("@")[0].lower()
     logging.info(f"engines: {engine_type}")
     config["engines"] = engine_type
     logging.info(f"user: {user_id} set engine to: {engine_type}")
@@ -121,13 +124,13 @@ async def set_engine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     await update.message.reply_text(text=f"Bot engine has been set to {engine_type}")
 
 
-@utils.send_typing_action
+@send_typing_action
 async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     update.message.text = example_tg
     await process_message(update, context)
 
 
-@utils.send_typing_action
+@send_typing_action
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await process_message(update, context)
 
@@ -208,7 +211,7 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
     voice_message = update.message.voice
     file_id = voice_message.file_id
     file = await bot.get_file(file_id)
-    transcript_msg = utils.generate_transcription(file)
+    transcript_msg = generate_transcription(file)
     logging.info(transcript_msg)
     try:
         user_id = int(update.effective_message.from_user.id)
@@ -231,7 +234,7 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         logging.error(e)
 
 
-@utils.send_typing_action
+@send_typing_action
 async def __process_text(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -267,7 +270,7 @@ async def __process_text(
         logging.error(e)
 
 
-@utils.send_typing_action
+@send_typing_action
 async def __process_translation(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -303,7 +306,7 @@ async def __process_translation(
         logging.error(e)
 
 
-@utils.send_typing_action
+@send_typing_action
 async def __process_images(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -348,14 +351,12 @@ def telegram_api_handler(event, context):
 
 
 async def _main(event):
-    app.add_handler(
-        CommandHandler("start", help_command.start_handler, filters=filters.COMMAND)
-    )
+    app.add_handler(CommandHandler("start", start_handler, filters=filters.COMMAND))
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
             ["bing", "chatgpt", "bard"],
-            set_engine,
+            set_engines,
             filters=filters.COMMAND,
         )
     )
@@ -364,9 +365,7 @@ async def _main(event):
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND
         )
     )
-    app.add_handler(
-        CommandHandler("help", help_command.help_handler, filters=filters.COMMAND)
-    )
+    app.add_handler(CommandHandler("help", help_handler, filters=filters.COMMAND))
     # app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))

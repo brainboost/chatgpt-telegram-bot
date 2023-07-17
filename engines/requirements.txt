@@ -1,4 +1,4 @@
-EdgeGPT
+git+https://github.com/brainboost/EdgeGPT.git
 GoogleBard
 revChatGPT
 BingImageCreator

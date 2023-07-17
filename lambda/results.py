@@ -3,19 +3,20 @@ import json
 import logging
 from urllib.parse import urlparse
 
-import utils
 from telegram import constants
 from telegram.error import BadRequest
 from telegram.ext import (
     Application,
 )
 
+from .utils import decode_message, read_ssm_param
+
 MAX_MESSAGE_SIZE = 4060
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
-telegram_token = utils.read_ssm_param(param_name="TELEGRAM_TOKEN")
+telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
 app = Application.builder().token(token=telegram_token).build()
 bot = app.bot
 
@@ -24,10 +25,10 @@ def response_handler(event, context) -> None:
     logging.info(event)
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        logging.info(payload)
+        # logging.info(payload)
         message_id = payload["message_id"]
         chat_id = payload["chat_id"]
-        message = utils.decode_message(payload["response"])
+        message = decode_message(payload["response"])
         if "images" in payload["type"]:
             caption = payload["text"]
             __send_images(chat_id, message_id, message, caption)

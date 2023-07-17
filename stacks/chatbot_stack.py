@@ -1,17 +1,22 @@
+from pathlib import Path
+
 from aws_cdk import (
     Duration,
     RemovalPolicy,
     Stack,
+    aws_cloudwatch,
+    aws_cloudwatch_actions,
     aws_ec2,
     aws_iam,
     aws_lambda_event_sources,
     aws_s3,
+    aws_sns,
     aws_sqs,
     aws_ssm,
     triggers,
 )
 from aws_cdk import aws_lambda as _lambda
-from aws_cdk.aws_lambda_python_alpha import PythonLayerVersion
+from aws_cdk.aws_lambda import Code, DockerImageCode, DockerImageFunction
 from constructs import Construct
 
 LAMBDA_ASSET_PATH = "lambda"
@@ -106,25 +111,20 @@ class ChatBotStack(Stack):
             versioned=True,
         )
 
-        lambda_layer = PythonLayerVersion(
-            self,
-            "BotLambdaLayer",
-            entry=LAMBDA_ASSET_PATH,
-            compatible_runtimes=[_lambda.Runtime.PYTHON_3_9],
-        )
-
-        result_handler = _lambda.Function(
+        docker_path = str(Path(__file__).parent.parent.resolve())
+        result_handler = DockerImageFunction(
             self,
             "ResultProcessingHandler",
             function_name="ResultProcessingHandler",
-            code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
-            handler="results.response_handler",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            layers=[lambda_layer],
+            code=DockerImageCode.from_image_asset(
+                directory=docker_path,
+                file="Dockerfile",
+                exclude=["cdk.out"],
+                # working_directory=LAMBDA_ASSET_PATH,
+                cmd=[f"{LAMBDA_ASSET_PATH}.results.response_handler"],
+            ),
             timeout=Duration.minutes(1),
             role=lambda_role,
-            # vpc=vpc,
-            # security_groups=[sg],
         )
 
         # result SQS queue
@@ -171,18 +171,19 @@ class ChatBotStack(Stack):
             string_value=result_queue.queue_url,
         )
 
-        lambda_function = _lambda.Function(
+        lambda_function = DockerImageFunction(
             self,
             "BotHandler",
             function_name="BotHandler",
-            code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
-            handler="chatbot.telegram_api_handler",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            layers=[lambda_layer],
+            code=DockerImageCode.from_image_asset(
+                directory=docker_path,
+                file="Dockerfile",
+                exclude=["cdk.out"],
+                # working_directory=LAMBDA_ASSET_PATH,
+                cmd=[f"{LAMBDA_ASSET_PATH}.chatbot.telegram_api_handler"],
+            ),
             timeout=Duration.minutes(1),
             role=lambda_role,
-            # vpc=vpc,
-            # security_groups=[sg],
             dead_letter_queue=aws_sqs.Queue(
                 self,
                 "BotHandler-DLQ",
@@ -216,12 +217,84 @@ class ChatBotStack(Stack):
         triggers.TriggerFunction(
             self,
             "WebhookTriggerHandler",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            handler="webhook.lambda_handler",
-            layers=[lambda_layer],
+            function_name="WebhookTriggerHandler",
+            runtime=_lambda.Runtime.FROM_IMAGE,
+            handler=_lambda.Handler.FROM_IMAGE,
             execute_after=[lambda_url_param],
             timeout=Duration.minutes(1),
-            code=_lambda.Code.from_asset(LAMBDA_ASSET_PATH),
+            code=Code.from_asset_image(
+                directory=docker_path,
+                file="Dockerfile",
+                exclude=["cdk.out"],
+                cmd=[f"{LAMBDA_ASSET_PATH}.webhook.lambda_handler"],
+            ),
             role=lambda_role,
             execute_on_handler_change=False,
+        )
+
+        # Alarms
+
+        alarm_topic = aws_sns.Topic(
+            self,
+            "ErrorsAlarms",
+            topic_name="ErrorsAlarms",
+            display_name="Errors Alarms Topic",
+        )
+
+        notify_email = aws_ssm.StringParameter.value_for_string_parameter(
+            self, "ALARM_EMAIL"
+        )
+
+        aws_sns.Subscription(
+            self,
+            "AlarmEmailSubscription",
+            topic=alarm_topic,
+            endpoint=notify_email,
+            protocol=aws_sns.SubscriptionProtocol.EMAIL,
+        )
+
+        result_dlq_alarm = aws_cloudwatch.Alarm(
+            self,
+            "ResultDlqAlarm",
+            alarm_name="ResultDlqAlarm",
+            alarm_description="Alarm when Result DLQ queue has messages",
+            metric=result_dlq.metric_approximate_number_of_messages_visible(),
+            threshold=0,
+            evaluation_periods=1,
+            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        )
+
+        result_dlq_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(alarm_topic))
+
+        bot_handler_error_alarm = aws_cloudwatch.Alarm(
+            self,
+            "BotHandlerLambdaErrors",
+            alarm_name="BotHandlerLambdaErrors",
+            metric=lambda_function.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
+            alarm_description="Alarm when BotHandler lambda has errors",
+            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        )
+
+        result_handler_error_alarm = aws_cloudwatch.Alarm(
+            self,
+            "ResultProcessingHandlerLambdaErrors",
+            alarm_name="ResultProcessingHandlerLambdaErrors",
+            metric=result_handler.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
+            alarm_description="Alarm when ResultProcessingHandler lambda has errors",
+            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        )
+
+        bot_handler_error_alarm.add_alarm_action(
+            aws_cloudwatch_actions.SnsAction(alarm_topic)
+        )
+        result_handler_error_alarm.add_alarm_action(
+            aws_cloudwatch_actions.SnsAction(alarm_topic)
         )

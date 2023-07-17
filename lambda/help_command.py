@@ -53,6 +53,16 @@ UA    Ukrainian"""
     elif text.endswith("imagine"):
         message = """\/imagine \- Creating images using *DALL\-E 2* AI engine\. Usage: \/imagine PROMPT
 Example: \/imagine Cute kitty plays with yarn ball"""
+    elif (
+        text.endswith("creative")
+        or text.endswith("balanced")
+        or text.endswith("precise")
+    ):
+        message = """Sets the tone of responses to the Bing AI engine. Has no effect on other engines. Each mode will start a new conversation
+Available values are: 
+    \• *creative* (default). This mode is for when you want to have fun and explore your imagination with me. I can generate content such as poems, stories, jokes, images, and more. I can also help you improve your own content by rewriting, optimizing, or adding details. I use a friendly and informal tone in this mode.
+    \• *balanced*. This mode is for when you want to have a balanced conversation with me. I can provide information, facts, opinions, and suggestions based on your queries. I can also chat with you about various topics and interests. I use a polite and neutral tone in this mode.
+    \• *precise*. This mode is for when you want to get precise and accurate answers from me. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning. I can also generate images based on your specifications. I use a concise and formal tone in this mode."""
     else:
         message = """If you need help with bot command, please type the command  
     with \/help prefix, for example *\/help tr*"""

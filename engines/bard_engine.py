@@ -5,10 +5,11 @@ import re
 import uuid
 
 import boto3
-import common_utils as utils
 from Bard import Chatbot
-from conversation_history import ConversationHistory
-from engine_interface import EngineInterface
+
+from .common_utils import encode_message, read_ssm_param
+from .conversation_history import ConversationHistory
+from .engine_interface import EngineInterface
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -31,8 +32,7 @@ class BardEngine(EngineInterface):
         if "/ping" in text:
             return "pong"
         response = self.chatbot.ask(message=text)
-        logging.info(response)
-        # logging.info(json.dumps(response, default=vars))
+        # logging.info(response)
         self.conversation_id = response["conversation_id"]
         item = response["content"]
         item = self.as_markdown(item)
@@ -58,9 +58,9 @@ class BardEngine(EngineInterface):
 
     @classmethod
     def create(cls) -> EngineInterface:
-        socks_url = utils.read_ssm_param(param_name="SOCKS5_URL")
+        socks_url = read_ssm_param(param_name="SOCKS5_URL")
         os.environ["all_proxy"] = socks_url
-        token = utils.read_ssm_param(param_name="BARD_TOKEN")
+        token = read_ssm_param(param_name="BARD_TOKEN")
         chatbot = Chatbot(session_id=token)
         return BardEngine(chatbot)
 
@@ -71,7 +71,7 @@ class BardEngine(EngineInterface):
 
 
 instance = BardEngine.create()
-results_queue = utils.read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
+results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
 # AWS SQS handler
@@ -84,7 +84,7 @@ def sqs_handler(event, context):
         response = instance.ask(payload["text"], payload["config"])
         payload["response"] = response
         logging.info(response)
-        payload["response"] = utils.encode_message(response)
+        payload["response"] = encode_message(response)
         payload["engine"] = instance.engine_type
         logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

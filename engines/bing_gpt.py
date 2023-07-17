@@ -1,14 +1,16 @@
 import asyncio
 import json
 import logging
+import os
 import re
 import uuid
 
 import boto3
-import common_utils as utils
-from conversation_history import ConversationHistory
 from EdgeGPT.EdgeGPT import Chatbot
-from engine_interface import EngineInterface
+
+from .common_utils import encode_message, read_json_from_s3, read_ssm_param
+from .conversation_history import ConversationHistory
+from .engine_interface import EngineInterface
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -101,16 +103,18 @@ class BingGpt(EngineInterface):
 
     @classmethod
     def create(cls) -> EngineInterface:
-        s3_path = utils.read_ssm_param(param_name="COOKIES_FILE")
+        s3_path = read_ssm_param(param_name="COOKIES_FILE")
         bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
+        socks_url = read_ssm_param(param_name="SOCKS5_URL")
+        os.environ["all_proxy"] = socks_url
         chatbot = asyncio.run(
-            Chatbot.create(cookies=utils.read_json_from_s3(bucket_name, file_name))
+            Chatbot.create(cookies=read_json_from_s3(bucket_name, file_name))
         )
         return BingGpt(chatbot)
 
 
 instance = BingGpt.create()
-results_queue = utils.read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
+results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
 # AWS SQS handler
@@ -119,10 +123,9 @@ sqs = boto3.session.Session().client("sqs")
 def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        # logging.info(payload)
         response = instance.ask(payload["text"], payload["config"])
-        logging.info(response)
-        payload["response"] = utils.encode_message(response)
+        # logging.info(response)
+        payload["response"] = encode_message(response)
         payload["engine"] = instance.engine_type
-        logging.info(payload)
+        # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
