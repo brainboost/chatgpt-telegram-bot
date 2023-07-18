@@ -16,6 +16,7 @@ async def help_handler(update: Update, context: CallbackContext) -> None:
     if text.endswith("tr"):
         message = """\/tr \- Translates text to one or multiple languages\. 
 Target language can be set either clicking menu button *or* typing in language code\(s\) by hands\. 
+You also can set languages separated with commas directly in the \/tr command, like this: \/tr pl,ru - in this case bot skips the question about language.  
 Several language codes must be separated by comma\. Example: _pl,ru,en\-gb_
 
 Supported languages are:
@@ -63,6 +64,14 @@ Available values are:
     \• *creative* (default). This mode is for when you want to have fun and explore your imagination with me. I can generate content such as poems, stories, jokes, images, and more. I can also help you improve your own content by rewriting, optimizing, or adding details. I use a friendly and informal tone in this mode.
     \• *balanced*. This mode is for when you want to have a balanced conversation with me. I can provide information, facts, opinions, and suggestions based on your queries. I can also chat with you about various topics and interests. I use a polite and neutral tone in this mode.
     \• *precise*. This mode is for when you want to get precise and accurate answers from me. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning. I can also generate images based on your specifications. I use a concise and formal tone in this mode."""
+    elif text.endswith("engines"):
+        message = """\/set_engines \- You can activate multiple AI engines to set them answering in parallel. Put their names separated with comma as an argument.
+Example: \/set_engines bing,bard,chatgpt - all three AI engines will respond simultaneously.
+This command persist it's value in the user configuration, so it will work until any of following commands applied: 
+    \• \/bing
+    \• \/bard
+    \• \/chatgpt
+    \• \/set_engines"""
     else:
         message = """If you need help with bot command, please type the command  
     with \/help prefix, for example *\/help tr*"""
@@ -81,6 +90,7 @@ Supported commands are:
 \/bing \- Switch answers to Bing AI model
 \/bard \- Switch answers to Google Bard AI model
 \/chatgpt \- Switch answers to OpenAI ChatGPT model
+\/set_engines \- Activates multiple AI engines at once, comma separated
 \/creative \- Set tone of responses to more creative on Bing model \(Default\)
 \/balanced \- Set tone of responses to more balanced
 \/precise \- Set tone of responses to more precise"""

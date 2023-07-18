@@ -116,12 +116,22 @@ async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def set_engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    engine_type = update.message.text.strip("/").split("@")[0].lower()
-    logging.info(f"engines: {engine_type}")
-    config["engines"] = engine_type
-    logging.info(f"user: {user_id} set engine to: {engine_type}")
+    engine_types = (
+        update.message.text.strip("/")
+        .split("@")[0]
+        .lower()
+        .strip("set_engines")
+        .replace(" ", "")
+        .strip()
+    )
+    logging.info(f"engines: {engine_types}")
+    if "," in engine_types:
+        config["engines"] = engine_types.split(",")
+    else:
+        config["engines"] = engine_types
+    logging.info(f"user: {user_id} set engine to: {engine_types}")
     user_config.write(user_id, config)
-    await update.message.reply_text(text=f"Bot engine has been set to {engine_type}")
+    await update.message.reply_text(text=f"Bot engine has been set to {engine_types}")
 
 
 @send_typing_action
@@ -145,8 +155,26 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.error(e)
 
 
+# Translation handlers
+
+
 async def tr_start(update: Update, context: CallbackContext) -> int:
     """Starts the conversation and asks the user about target language"""
+
+    user_id = update.effective_user.id
+    config = user_config.read(user_id)
+
+    # Check if the user provided languages to the command
+    if len(context.args) > 0:
+        logging.info(update.message.text)
+        logging.info(context.args)
+        langs = ",".join(context.args).strip().upper()
+        user_config.write(user_id, config)
+        await update.message.reply_text(
+            f"Set language(s) to: {langs}. Send your text to translate"
+        )
+        return TEXT
+
     reply_keyboard = [
         ["BG", "ZH", "CS", "DA", "NL"],
         ["EL", "EN-GB", "EN-US", "ES", "ET"],
@@ -155,8 +183,6 @@ async def tr_start(update: Update, context: CallbackContext) -> int:
         ["NO", "PL", "PT", "RO", "RU"],
         ["SK", "SL", "SV", "TR", "UA"],
     ]
-    user_id = update.effective_user.id
-    config = user_config.read(user_id)
     await update.message.reply_text(
         "Choose translation language(s)",
         reply_markup=ReplyKeyboardMarkup(
@@ -175,11 +201,11 @@ async def tr_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     config = user_config.read(user_id)
     if update.message.text is not None:
         config["languages"] = update.message.text.strip().upper()
+    user_config.write(user_id, config)
     await update.message.reply_text(
-        "Please send me your text to translate",
+        "Please send your text to translate",
         reply_markup=ReplyKeyboardRemove(),
     )
-    user_config.write(user_id, config)
     return TEXT
 
 
@@ -199,7 +225,7 @@ async def tr_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 async def tr_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Cancels and ends the translation request"""
     user = update.message.from_user
-    logging.info("User %s canceled the translation.", user.first_name)
+    logging.info("user %s canceled the translation.", user.first_name)
     await update.message.reply_text("OK, bye!", reply_markup=ReplyKeyboardRemove())
     return ConversationHandler.END
 
@@ -251,9 +277,8 @@ async def __process_text(
         "timestamp": update.effective_message.date.timestamp(),
         "config": config,
     }
-    logging.info(envelop)
+    # logging.info(envelop)
     engines = json.dumps(config["engines"])
-    logging.info(engines)
     try:
         sns.publish(
             TopicArn=sns_topic,
@@ -287,9 +312,8 @@ async def __process_translation(
         "timestamp": update.effective_message.date.timestamp(),
         "languages": lang.upper(),
     }
-    logging.info(envelop)
+    # logging.info(envelop)
     engines = json.dumps("deepl")
-    logging.info(engines)
     try:
         sns.publish(
             TopicArn=sns_topic,
@@ -313,7 +337,7 @@ async def __process_images(
     config: UserConfig,
 ):
     prompt = " ".join(context.args)
-    logging.info(prompt)
+    # logging.info(prompt)
     envelop = {
         "type": "images",
         "user_id": update.effective_user.id,
@@ -325,8 +349,8 @@ async def __process_images(
         "config": config,
     }
     logging.info(envelop)
-    engines = json.dumps(config["engines"])
-    logging.info(engines)
+    # engines = json.dumps(config["engines"])
+    # logging.info(engines)
     try:
         sns.publish(
             TopicArn=sns_topic,
@@ -360,6 +384,7 @@ async def _main(event):
             filters=filters.COMMAND,
         )
     )
+    app.add_handler(CommandHandler("set_engines", set_engines, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND
@@ -370,7 +395,7 @@ async def _main(event):
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("tr", tr_start)],
+        entry_points=[CommandHandler("tr", tr_start, filters=filters.COMMAND)],
         states={
             LANG: [
                 MessageHandler(

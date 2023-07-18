@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 import re
 import uuid
 
@@ -105,8 +104,8 @@ class BingGpt(EngineInterface):
     def create(cls) -> EngineInterface:
         s3_path = read_ssm_param(param_name="COOKIES_FILE")
         bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
-        socks_url = read_ssm_param(param_name="SOCKS5_URL")
-        os.environ["all_proxy"] = socks_url
+        # socks_url = read_ssm_param(param_name="SOCKS5_URL")
+        # os.environ["all_proxy"] = socks_url
         chatbot = asyncio.run(
             Chatbot.create(cookies=read_json_from_s3(bucket_name, file_name))
         )
