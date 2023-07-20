@@ -120,7 +120,7 @@ async def set_engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         update.message.text.strip("/")
         .split("@")[0]
         .lower()
-        .strip("set_engines")
+        .replace("set_engines", "")
         .replace(" ", "")
         .strip()
     )
