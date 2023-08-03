@@ -37,7 +37,7 @@ class BingGpt(EngineInterface):
         response = asyncio.run(
             self.chatbot.ask(
                 prompt=text, conversation_style=style, simplify_response=False
-            )
+            ),
         )
         item = response["item"]
         self.conversation_id = item["conversationId"]
@@ -83,7 +83,6 @@ class BingGpt(EngineInterface):
 
     def as_markdown(self, item: dict) -> str:
         message = item["messages"][-1]
-        # logging.info(message)
         text = message["adaptiveCards"][0]["body"][0]["text"]
         return self.replace_references(text)
 
@@ -123,8 +122,6 @@ def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
         response = instance.ask(payload["text"], payload["config"])
-        # logging.info(response)
         payload["response"] = encode_message(response)
         payload["engine"] = instance.engine_type
-        # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

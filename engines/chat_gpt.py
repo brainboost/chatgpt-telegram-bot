@@ -6,6 +6,7 @@ from collections import deque
 import boto3
 from revChatGPT.V1 import Chatbot
 
+# from revChatGPT.V3 import Chatbot
 from .common_utils import encode_message, read_ssm_param
 from .conversation_history import ConversationHistory
 from .engine_interface import EngineInterface
@@ -60,7 +61,9 @@ class ChatGpt(EngineInterface):
     @classmethod
     def create(cls) -> EngineInterface:
         gpt_token = read_ssm_param(param_name="GPT_TOKEN")
+        # api_key = read_ssm_param("OPENAI_API_KEY")
         chatbot = Chatbot(config={"access_token": gpt_token})
+        # chatbot = Chatbot(api_key=api_key)
         return ChatGpt(chatbot)
 
 

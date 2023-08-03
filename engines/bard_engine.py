@@ -61,7 +61,8 @@ class BardEngine(EngineInterface):
         socks_url = read_ssm_param(param_name="SOCKS5_URL")
         os.environ["all_proxy"] = socks_url
         token = read_ssm_param(param_name="BARD_TOKEN")
-        chatbot = Chatbot(session_id=token)
+        psid_ts = read_ssm_param(param_name="BARD_1PSIDTS")
+        chatbot = Chatbot(token, psid_ts)
         return BardEngine(chatbot)
 
     def as_markdown(self, input: str) -> str:

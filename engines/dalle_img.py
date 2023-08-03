@@ -16,7 +16,7 @@ def create() -> ImageGen:
     bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
     auth_cookies = read_json_from_s3(bucket_name, file_name)
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
-    return ImageGen(u)
+    return ImageGen(auth_cookie=u, quiet=True, all_cookies=auth_cookies)
 
 
 imageGen = create()
@@ -53,6 +53,7 @@ def sqs_handler(event, context):
         try:
             history.write(
                 conversation_id=conversation_id,
+                request_id=f'img_{payload["update_id"]}',
                 user_id=user_id,
                 conversation=payload,
             )

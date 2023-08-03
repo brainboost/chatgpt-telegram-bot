@@ -1,6 +1,6 @@
 git+https://github.com/brainboost/EdgeGPT.git
 GoogleBard
-revChatGPT==6.8.6
+revChatGPT
 BingImageCreator
 deepl
 websockets

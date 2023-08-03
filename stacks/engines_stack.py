@@ -143,10 +143,10 @@ class EnginesStack(Stack):
                 directory=docker_path,
                 file="Dockerfile",
                 exclude=["cdk.out"],
-                # working_directory=ASSET_PATH,
                 cmd=[f"{ASSET_PATH}.bing_gpt.sqs_handler"],
             ),
             timeout=Duration.minutes(3),
+            memory_size=256,
             role=lambda_role,
         )
         bing_handler.add_event_source(
@@ -202,7 +202,6 @@ class EnginesStack(Stack):
                 directory=docker_path,
                 file="Dockerfile",
                 exclude=["cdk.out"],
-                # working_directory=ASSET_PATH,
                 cmd=[f"{ASSET_PATH}.bard_engine.sqs_handler"],
             ),
             timeout=Duration.minutes(3),
@@ -262,10 +261,10 @@ class EnginesStack(Stack):
                 directory=docker_path,
                 file="Dockerfile",
                 exclude=["cdk.out"],
-                # working_directory=ASSET_PATH,
                 cmd=[f"{ASSET_PATH}.chat_gpt.sqs_handler"],
             ),
             timeout=Duration.minutes(3),
+            memory_size=256,
             role=lambda_role,
         )
         chatgpt_handler.add_event_source(
@@ -319,7 +318,6 @@ class EnginesStack(Stack):
                 directory=docker_path,
                 file="Dockerfile",
                 exclude=["cdk.out"],
-                # working_directory=ASSET_PATH,
                 cmd=[f"{ASSET_PATH}.dalle_img.sqs_handler"],
             ),
             timeout=Duration.minutes(3),
@@ -376,7 +374,6 @@ class EnginesStack(Stack):
                 directory=docker_path,
                 file="Dockerfile",
                 exclude=["cdk.out"],
-                # working_directory=ASSET_PATH,
                 cmd=[f"{ASSET_PATH}.deepl_tr.sqs_handler"],
             ),
             timeout=Duration.minutes(3),
