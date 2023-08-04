@@ -59,6 +59,7 @@ async def set_commands(application: Application) -> None:
             BotCommand("/bing", "Switch to Bing AI model"),
             BotCommand("/bard", "Switch to Google Bard AI model"),
             BotCommand("/chatgpt", "Switch to OpenAI ChatGPT model"),
+            BotCommand("/llama", "Switch to LLama 2 AI model"),
             BotCommand("/creative", "Set tone of responses to more creative (Default)"),
             BotCommand("/balanced", "Set tone of responses to more balanced"),
             BotCommand("/precise", "Set tone of responses to more precise"),
@@ -379,7 +380,7 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["bing", "chatgpt", "bard"],
+            ["bing", "chatgpt", "bard", "llama"],
             set_engines,
             filters=filters.COMMAND,
         )
