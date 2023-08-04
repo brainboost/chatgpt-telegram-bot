@@ -71,6 +71,7 @@ This command persist it's value in the user configuration, so it will work until
     \• \/bing
     \• \/bard
     \• \/chatgpt
+    \• \/llama
     \• \/set_engines"""
     else:
         message = """If you need help with bot command, please type the command  
@@ -90,6 +91,7 @@ Supported commands are:
 \/bing \- Switch answers to Bing AI model
 \/bard \- Switch answers to Google Bard AI model
 \/chatgpt \- Switch answers to OpenAI ChatGPT model
+\/llama \- Switch answers to Meta LLama2 AI model
 \/set_engines \- Activates multiple AI engines at once, comma separated
 \/creative \- Set tone of responses to more creative on Bing model \(Default\)
 \/balanced \- Set tone of responses to more balanced
