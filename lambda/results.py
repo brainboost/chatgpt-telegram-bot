@@ -9,7 +9,7 @@ from telegram.ext import (
     Application,
 )
 
-from .utils import decode_message, read_ssm_param
+from .utils import decode_message, read_ssm_param, split_long_message
 
 MAX_MESSAGE_SIZE = 4060
 
@@ -33,19 +33,11 @@ def response_handler(event, context) -> None:
             caption = payload["text"]
             __send_images(chat_id, message_id, message, caption)
         else:
-            length = len(message)
-            start = 0
-            end = min(MAX_MESSAGE_SIZE, length)
-            count = length // MAX_MESSAGE_SIZE + 1
-            i = 1
-            while start < length:
-                text = (
-                    f"*__{payload['engine']}__*: {i} of {count}\n{message[start:end]}"
-                )
-                __send_text(chat_id, message_id, text)
-                start = end
-                end = min(start + MAX_MESSAGE_SIZE, length)
-                i += 1
+            parts = split_long_message(
+                message, f"*__{payload['engine']}__*", MAX_MESSAGE_SIZE
+            )
+            for part in parts:
+                __send_text(chat_id, message_id, part)
 
 
 def __send_text(chat_id: str, message_id: str, text: str) -> None:

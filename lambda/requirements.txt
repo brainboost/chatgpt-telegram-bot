@@ -1,6 +1,5 @@
 python-telegram-bot
 websockets
 requests
-boto3[crt]
-botocore
+boto3>=1.27.1
 wget

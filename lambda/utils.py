@@ -75,7 +75,7 @@ def generate_transcription(file):
     return output["results"]["transcripts"][0]["transcript"]
 
 
-def read_ssm_param(param_name: str) -> str:
+def read_ssm_param(param_name: str):
     ssm_client = boto3.client(service_name="ssm")
     return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
 
@@ -98,3 +98,19 @@ def recursive_stringify(arr) -> str:
         else:
             result.append(str(item))
     return ", ".join(result) + "\n"
+
+
+def split_long_message(message: str, header: str, max_length: int) -> list:
+    result = []
+    length = len(message)
+    start = 0
+    end = min(max_length, length)
+    count = length // max_length + 1
+    i = 1
+    while start < length:
+        text = f"{header}: {i} of {count}\n{message[start:end]}"
+        result.append(text)
+        start = end
+        end = min(start + max_length, length)
+        i += 1
+    return result
