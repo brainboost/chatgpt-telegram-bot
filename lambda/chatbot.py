@@ -11,6 +11,7 @@ from telegram import (
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
     Update,
+    constants,
 )
 from telegram.ext import (
     Application,
@@ -29,6 +30,7 @@ from .utils import (
     read_ssm_param,
     recursive_stringify,
     send_typing_action,
+    split_long_message,
 )
 
 example_tg = """
@@ -79,6 +81,7 @@ async def set_commands(application: Application) -> None:
 
 telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
 sns_topic = read_ssm_param(param_name="REQUESTS_SNS_TOPIC_ARN")
+admins = [read_ssm_param(param_name="TELEGRAM_BOT_ADMINS")]
 app = (
     Application.builder()
     .token(token=telegram_token)
@@ -90,7 +93,7 @@ app = (
 )
 bot = app.bot
 logging.info("application startup")
-
+logging.info(f"admins:{admins}")
 
 # Telegram commands
 
@@ -159,6 +162,7 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await process_message(update, context)
 
 
+@send_typing_action
 async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         user_id = int(update.message.from_user.id)
@@ -170,6 +174,9 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def grab_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.message.from_user.id)
+    if user_id not in admins:
+        return
     try:
         query_string = "fields @message | filter @message like /Error/"
         results = __query_cloudwatch_logs(query_string)
@@ -178,15 +185,18 @@ async def grab_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         logging.info(f"{results}")
         if length == 0:
             results = ["No error messages found"]
-        await update.message.reply_text(text=recursive_stringify(results))
+        else:
+            text = recursive_stringify(results)
+            parts = split_long_message(text, "logs", 4060)
+            for part in parts:
+                await update.message.reply_text(text=part)
+
     except Exception as e:
         logging.error(e)
-        await update.message.reply_text(text=str(e))
-
-
-async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    result = __redrive_dlq_queue()
-    await update.message.reply_text(text=result)
+        await update.message.reply_text(
+            text=f"Error: ```{str(e)}```",
+            parse_mode=constants.ParseMode.MARKDOWN_V2,
+        )
 
 
 def __query_cloudwatch_logs(query_string):
@@ -217,20 +227,44 @@ def __query_cloudwatch_logs(query_string):
         return []
 
 
-def __redrive_dlq_queue() -> str:
+async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = str(update.message.from_user.id)
+    if user_id not in admins:
+        return
+    await update.message.reply_text(text="Starting Redrive DLQ task")
+    results = __start_redrive_dlq()
+    await update.message.reply_text(
+        text=f"Result: ```{json.dumps(results)}```",
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+    )
+
+
+def __start_redrive_dlq() -> dict:
     session = boto3.session.Session()
     region = session.region_name
     sts_client = session.client("sts")
     account_id = sts_client.get_caller_identity()["Account"]
     dlq_arn = f"arn:aws:sqs:{region}:{account_id}:Request-Queues-DLQ"
-    # logging.info(dlq_arn)
     sqs = session.client("sqs")
     try:
         dlq_response = sqs.start_message_move_task(SourceArn=dlq_arn)
         if dlq_response is not None:
-            return f"Redrive task started: {dlq_response['TaskHandle']}"
+            handle = dlq_response["TaskHandle"]
+            logging.info(f"Redrive task started: {handle}")
+            while True:
+                list_response = sqs.list_message_move_tasks(SourceArn=dlq_arn)
+                results = list_response["Results"][0]
+                logging.info(f"Results: {results}")
+                if results["Status"] == "RUNNING":
+                    logging.info("Delaying..")
+                    time.sleep(2)
+                else:
+                    break
+
+            logging.info(f"Finished: {results}")
+            return results
     except ClientError as e:
-        logging.error(f"Error redriving DLQ messages:{e}")
+        logging.error(f"Redriving DLQ messages error :{e}")
         return f"DLQ Redrive failed: {e}"
 
 
@@ -327,7 +361,7 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.text is None:
+    if update.message is None or update.message.text is None:
         return
     if bot.name not in update.message.text and "group" in update.message.chat.type:
         return
@@ -472,6 +506,7 @@ async def _main(event):
     app.add_handler(CommandHandler("help", help_handler, filters=filters.COMMAND))
     # app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
     app.add_handler(CommandHandler("errors", grab_logs, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("redrive", redrive_dlq, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
     conv_handler = ConversationHandler(

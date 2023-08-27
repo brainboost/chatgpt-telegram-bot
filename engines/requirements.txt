@@ -1,7 +1,7 @@
 git+https://github.com/brainboost/EdgeGPT.git
-GoogleBard
-revChatGPT
-BingImageCreator
+git+https://github.com/brainboost/Bard.git
+git+https://github.com/brainboost/ChatGPT.git
+git+https://github.com/brainboost/BingImageCreator.git
 deepl
 websockets
 requests
