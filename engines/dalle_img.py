@@ -4,7 +4,12 @@ import logging
 import boto3
 from BingImageCreator import ImageGen
 
-from .common_utils import encode_message, read_json_from_s3, read_ssm_param
+from .common_utils import (
+    encode_message,
+    escape_markdown_v2,
+    read_json_from_s3,
+    read_ssm_param,
+)
 from .conversation_history import ConversationHistory
 
 logging.basicConfig()
@@ -16,7 +21,10 @@ def create() -> ImageGen:
     bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
     auth_cookies = read_json_from_s3(bucket_name, file_name)
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
-    return ImageGen(auth_cookie=u, quiet=True, all_cookies=auth_cookies)
+    srch = [x.get("value") for x in auth_cookies if x.get("name") == "SRCHHPGUSR"][0]
+    return ImageGen(
+        auth_cookie=u, auth_cookie_SRCHHPGUSR=srch, quiet=True, all_cookies=auth_cookies
+    )
 
 
 imageGen = create()
@@ -35,7 +43,8 @@ def sqs_handler(event, context):
                 list = imageGen.get_images(prompt)
             except Exception as e:
                 if "prompt has been blocked" in str(e):
-                    list = [str(e)]
+                    message = escape_markdown_v2(str(e))
+                    list = [message]
                 else:
                     logging.error(e)
                     logging.info(payload)
@@ -66,5 +75,5 @@ def sqs_handler(event, context):
         message = "\n".join(list)
         payload["response"] = encode_message(message)
         payload["engine"] = "Dall-E"
-        logging.info(payload)
+        # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

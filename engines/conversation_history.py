@@ -25,7 +25,9 @@ class ConversationHistory:
         except Exception as e:
             logging.error(e)
 
-    def write(self, conversation_id: str, request_id: str, user_id: int, conversation):
+    def write(
+        self, conversation_id: str, request_id: str, user_id: int, conversation: any
+    ):
         self.table.put_item(
             Item={
                 "conversation_id": conversation_id,

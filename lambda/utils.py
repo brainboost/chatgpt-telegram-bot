@@ -88,3 +88,13 @@ def decode_message(encoded: str) -> str:
     bin = base64.b64decode(encoded.encode("ascii"))
     unzipped = zlib.decompress(bin)
     return unzipped.decode("utf-8")
+
+
+def recursive_stringify(arr) -> str:
+    result = []
+    for item in arr:
+        if isinstance(item, list):
+            result.append(recursive_stringify(item))
+        else:
+            result.append(str(item))
+    return ", ".join(result) + "\n"

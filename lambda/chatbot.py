@@ -1,8 +1,11 @@
 import asyncio
 import json
 import logging
+import time
 
 import boto3
+import boto3.session
+from botocore.exceptions import ClientError
 from telegram import (
     BotCommand,
     ReplyKeyboardMarkup,
@@ -21,7 +24,12 @@ from telegram.ext import (
 
 from .help_command import help_handler, start_handler
 from .user_config import UserConfig
-from .utils import generate_transcription, read_ssm_param, send_typing_action
+from .utils import (
+    generate_transcription,
+    read_ssm_param,
+    recursive_stringify,
+    send_typing_action,
+)
 
 example_tg = """
 *bold \*text*
@@ -56,6 +64,7 @@ async def set_commands(application: Application) -> None:
             BotCommand("/start", "Begin with bot, introduction"),
             BotCommand("/help", "Commands usage. Syntax: /help COMMAND"),
             BotCommand("/tr", "Translate text to other language(s)"),
+            BotCommand("/engines", "Gets or sets the AI model(s)"),
             BotCommand("/bing", "Switch to Bing AI model"),
             BotCommand("/bard", "Switch to Google Bard AI model"),
             BotCommand("/chatgpt", "Switch to OpenAI ChatGPT model"),
@@ -121,15 +130,19 @@ async def set_engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         update.message.text.strip("/")
         .split("@")[0]
         .lower()
-        .replace("set_engines", "")
+        .replace("engines", "")
         .replace(" ", "")
         .strip()
     )
     logging.info(f"engines: {engine_types}")
+    if not engine_types:
+        engine_types = config["engines"]
+        await update.message.reply_text(text=f"Bot engine(s): {engine_types}")
+        return
     if "," in engine_types:
         config["engines"] = engine_types.split(",")
     else:
-        config["engines"] = engine_types
+        config["engines"] = [engine_types]
     logging.info(f"user: {user_id} set engine to: {engine_types}")
     user_config.write(user_id, config)
     await update.message.reply_text(text=f"Bot engine has been set to {engine_types}")
@@ -153,7 +166,72 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # logging.info(context.args)
         await __process_images(update, context, config)
     except Exception as e:
+        logging.error(str(e))
+
+
+async def grab_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        query_string = "fields @message | filter @message like /Error/"
+        results = __query_cloudwatch_logs(query_string)
+        length = len(results)
+        logging.info(f"No. of errors: {length}")
+        logging.info(f"{results}")
+        if length == 0:
+            results = ["No error messages found"]
+        await update.message.reply_text(text=recursive_stringify(results))
+    except Exception as e:
         logging.error(e)
+        await update.message.reply_text(text=str(e))
+
+
+async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    result = __redrive_dlq_queue()
+    await update.message.reply_text(text=result)
+
+
+def __query_cloudwatch_logs(query_string):
+    client = boto3.client("logs")
+    try:
+        group_response = client.describe_log_groups(logGroupNamePattern="Handler")
+        group_names = [group["logGroupName"] for group in group_response["logGroups"]]
+        logging.info(group_names)
+        response = client.start_query(
+            logGroupNames=group_names,
+            startTime=int((time.time() - 3600 * 3) * 1000),  # 3h in ms
+            endTime=int(time.time() * 1000),
+            queryString=query_string,
+            limit=1000,
+        )
+        query_id = response["queryId"]
+        while True:
+            query_status = client.get_query_results(queryId=query_id)
+            if query_status["status"] == "Complete":
+                break
+            time.sleep(1)
+
+        query_results = query_status["results"]
+        return query_results
+
+    except Exception as e:
+        logging.error(f"Error querying CloudWatch Logs:{e}")
+        return []
+
+
+def __redrive_dlq_queue() -> str:
+    session = boto3.session.Session()
+    region = session.region_name
+    sts_client = session.client("sts")
+    account_id = sts_client.get_caller_identity()["Account"]
+    dlq_arn = f"arn:aws:sqs:{region}:{account_id}:Request-Queues-DLQ"
+    # logging.info(dlq_arn)
+    sqs = session.client("sqs")
+    try:
+        dlq_response = sqs.start_message_move_task(SourceArn=dlq_arn)
+        if dlq_response is not None:
+            return f"Redrive task started: {dlq_response['TaskHandle']}"
+    except ClientError as e:
+        logging.error(f"Error redriving DLQ messages:{e}")
+        return f"DLQ Redrive failed: {e}"
 
 
 # Translation handlers
@@ -385,7 +463,7 @@ async def _main(event):
             filters=filters.COMMAND,
         )
     )
-    app.add_handler(CommandHandler("set_engines", set_engines, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("engines", set_engines, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND
@@ -393,6 +471,7 @@ async def _main(event):
     )
     app.add_handler(CommandHandler("help", help_handler, filters=filters.COMMAND))
     # app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("errors", grab_logs, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
     conv_handler = ConversationHandler(
