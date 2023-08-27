@@ -47,6 +47,10 @@ class BardEngine(EngineInterface):
             logging.error(
                 f"conversation_id: {self.conversation_id}, error: {e}, item: {item}"
             )
+            if "SNlM0e" in str(e):
+                global instance
+                instance = BardEngine.create()
+                logging.info("a Bard instance is recreated")
         return item
 
     def close(self):
@@ -62,7 +66,7 @@ class BardEngine(EngineInterface):
         os.environ["all_proxy"] = socks_url
         token = read_ssm_param(param_name="BARD_TOKEN")
         psid_ts = read_ssm_param(param_name="BARD_1PSIDTS")
-        chatbot = Chatbot(token, psid_ts)
+        chatbot = Chatbot(secure_1psid=token, secure_1psidts=psid_ts, timeout=40)
         return BardEngine(chatbot)
 
     def as_markdown(self, input: str) -> str:

@@ -13,6 +13,7 @@ from aws_cdk import (
     aws_sqs,
     aws_ssm,
 )
+from aws_cdk import aws_lambda as _lambda
 from aws_cdk.aws_lambda import DockerImageCode, DockerImageFunction
 from constructs import Construct
 
@@ -165,7 +166,7 @@ class EnginesStack(Stack):
             handler=f"{ASSET_PATH}.deepl_tr.sqs_handler",
         )
 
-        # LLama 2
+        # LLama2
 
         self.__create_engine(
             engine_name="LLama",
@@ -175,7 +176,49 @@ class EnginesStack(Stack):
                     allowlist=["llama"]
                 ),
             },
-            handler=f"{ASSET_PATH}.llama2.sqs_handler",
+            handler=f"{ASSET_PATH}.monsterapi.sqs_handler",
+        )
+
+        # Add monsterapi callback handler
+        api_callback = DockerImageFunction(
+            self,
+            "MonsterApiCallbackHandler",
+            function_name="MonsterApiCallbackHandler",
+            code=DockerImageCode.from_image_asset(
+                directory=self.docker_file_path,
+                file="Dockerfile",
+                exclude=["cdk.out"],
+                cmd=[f"{ASSET_PATH}.monsterapi_result.callback_handler"],
+            ),
+            timeout=Duration.minutes(3),
+            memory_size=256,
+            role=self.lambda_role,
+        )
+        error_alarm = aws_cloudwatch.Alarm(
+            self,
+            "MonsterApiCallbackHandlerErrors",
+            alarm_name="MonsterApiCallbackHandlerErrors",
+            metric=api_callback.metric_errors(),
+            threshold=1,
+            evaluation_periods=1,
+            datapoints_to_alarm=1,
+            treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
+            alarm_description="Alarm when MonsterApi callback handler lambda has errors",
+            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        )
+        error_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(self.alarm_topic))
+        callback_lambda_url = api_callback.add_function_url(
+            auth_type=_lambda.FunctionUrlAuthType.NONE,
+            cors={
+                "allowed_origins": ["https://*"],
+                "allowed_methods": [_lambda.HttpMethod.POST],
+            },
+        )
+        aws_ssm.StringParameter(
+            self,
+            "MonsterApiCallbackURLParam",
+            parameter_name="MONSTERAPI_CALLBACK_URL",
+            string_value=callback_lambda_url.url,
         )
 
     def __create_engine(

@@ -89,6 +89,7 @@ def __send_images(chat_id: str, message_id: str, message: str, caption: str) -> 
     logging.info(message)
     for url in iter(message.splitlines()):
         if not __is_valid_url(url):
+            logging.error(f"chat_id:{chat_id}, message_id: {message_id}")
             __send_text(chat_id, message_id, f"Error: {url}")
         try:
             asyncio.get_event_loop().run_until_complete(

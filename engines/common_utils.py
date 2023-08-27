@@ -2,11 +2,12 @@ import base64
 import json
 import logging
 import zlib
-
+import re
 import boto3
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
 
 
 def read_ssm_param(param_name: str) -> str:
@@ -24,3 +25,7 @@ def read_json_from_s3(bucket_name: str, file_name: str) -> dict:
 def encode_message(text: str) -> str:
     zipped = zlib.compress(text.encode("utf-8"))
     return base64.b64encode(zipped).decode("ascii")
+
+
+def escape_markdown_v2(text: str) -> str:
+    return re.sub(pattern=esc_pattern, repl=r"\\\1", string=text)

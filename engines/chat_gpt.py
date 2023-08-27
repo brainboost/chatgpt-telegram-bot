@@ -7,7 +7,7 @@ import boto3
 from revChatGPT.V1 import Chatbot
 
 # from revChatGPT.V3 import Chatbot
-from .common_utils import encode_message, read_ssm_param
+from .common_utils import encode_message, escape_markdown_v2, read_ssm_param
 from .conversation_history import ConversationHistory
 from .engine_interface import EngineInterface
 
@@ -19,9 +19,6 @@ class ChatGpt(EngineInterface):
     def __init__(self, chatbot: Chatbot) -> None:
         self.remove_links_pattern = re.compile(r"\[\^\d+\^\]\s?")
         self.ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-        self.esc_pattern = re.compile(
-            f"(?<!\|)([{re.escape(r'._-+#|{}!=()<>')}])(?!\|)"
-        )
         self.conversation_id = None
         self.parent_id = None
         self.chatbot = chatbot
@@ -52,7 +49,7 @@ class ChatGpt(EngineInterface):
         self.parent_id = response["parent_id"]
         self.conversation_id = response["conversation_id"]
         # logging.info(response["model"])
-        return re.sub(pattern=self.esc_pattern, repl=r"\\\1", string=message)
+        return escape_markdown_v2(message)
 
     @property
     def engine_type(self):

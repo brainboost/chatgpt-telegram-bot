@@ -1,5 +1,6 @@
 python-telegram-bot
 websockets
 requests
-boto3
+boto3[crt]
+botocore
 wget
