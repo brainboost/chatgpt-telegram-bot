@@ -180,6 +180,7 @@ class EnginesStack(Stack):
         )
 
         # Add monsterapi callback handler
+
         api_callback = DockerImageFunction(
             self,
             "MonsterApiCallbackHandler",
@@ -219,6 +220,18 @@ class EnginesStack(Stack):
             "MonsterApiCallbackURLParam",
             parameter_name="MONSTERAPI_CALLBACK_URL",
             string_value=callback_lambda_url.url,
+        )
+
+        # Ideogram
+
+        self.__create_engine(
+            engine_name="Ideogram",
+            sns_filter_policy={
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["ideogram"]
+                ),
+            },
+            handler=f"{ASSET_PATH}.ideogram.sqs_handler",
         )
 
     def __create_engine(

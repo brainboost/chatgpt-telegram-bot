@@ -29,7 +29,7 @@ def response_handler(event, context) -> None:
         message_id = payload["message_id"]
         chat_id = payload["chat_id"]
         message = decode_message(payload["response"])
-        if "images" in payload["type"]:
+        if "images" in payload["type"] or "ideogram" in payload["type"]:
             caption = payload["text"]
             __send_images(chat_id, message_id, message, caption)
         else:

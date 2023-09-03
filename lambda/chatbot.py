@@ -167,8 +167,18 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         user_id = int(update.message.from_user.id)
         config = user_config.read(user_id)
-        # logging.info(context.args)
-        await __process_images(update, context, config)
+        await __process_images(update, context, config, "images")
+    except Exception as e:
+        logging.error(str(e))
+
+
+@send_typing_action
+async def ideogram(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        user_id = int(update.message.from_user.id)
+        config = user_config.read(user_id)
+        # logging.info(f"ideogram: user_id {user_id}, config: {config}")
+        await __process_images(update, context, config, "ideogram")
     except Exception as e:
         logging.error(str(e))
 
@@ -443,16 +453,17 @@ async def __process_translation(
         logging.error(e)
 
 
-@send_typing_action
+# @send_typing_action
 async def __process_images(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     config: UserConfig,
+    type: str,
 ):
     prompt = " ".join(context.args)
-    # logging.info(prompt)
+    logging.info(prompt)
     envelop = {
-        "type": "images",
+        "type": type,
         "user_id": update.effective_user.id,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
@@ -462,8 +473,6 @@ async def __process_images(
         "config": config,
     }
     logging.info(envelop)
-    # engines = json.dumps(config["engines"])
-    # logging.info(engines)
     try:
         sns.publish(
             TopicArn=sns_topic,
@@ -509,6 +518,7 @@ async def _main(event):
     app.add_handler(CommandHandler("redrive", redrive_dlq, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("ideogram", ideogram, filters=filters.COMMAND))
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("tr", tr_start, filters=filters.COMMAND)],
         states={
