@@ -22,14 +22,14 @@ bot = app.bot
 
 
 def response_handler(event, context) -> None:
-    logging.info(event)
+    """Result SQS processing handler."""
+
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        # logging.info(payload)
-        message_id = payload["message_id"]
         chat_id = payload["chat_id"]
+        message_id = payload["message_id"]
         message = decode_message(payload["response"])
-        if "images" in payload["type"] or "ideogram" in payload["type"]:
+        if "imagine" in payload["type"] or "ideogram" in payload["type"]:
             caption = payload["text"]
             __send_images(chat_id, message_id, message, caption)
         else:

@@ -10,18 +10,17 @@ logging.getLogger().setLevel("INFO")
 
 class UserConfig:
     def __init__(self) -> None:
-        dynamodb = boto3.resource("dynamodb")
-        self.table = dynamodb.Table("user-configurations")
+        dynamodb = boto3.resource("dynamodb")# type: ignore
+        self.table = dynamodb.Table("user-configurations") 
 
     def read(self, user_id: int) -> dict:
         try:
             resp = self.table.get_item(Key={"user_id": user_id})
             if "Item" in resp:
                 return json.loads(resp["Item"]["config"])
-            return self.create_config(user_id)
-
         except Exception as e:
             logging.error(e)
+        return self.create_config(user_id)
 
     def write(self, user_id: int, config):
         config["user_id"] = user_id

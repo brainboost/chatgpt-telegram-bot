@@ -1,13 +1,12 @@
 import json
 import logging
-import os
 import re
 import uuid
 
 import boto3
 from Bard import Chatbot
 
-from .common_utils import encode_message, read_ssm_param
+from .common_utils import encode_message, read_json_from_s3, read_ssm_param
 from .conversation_history import ConversationHistory
 from .engine_interface import EngineInterface
 
@@ -62,11 +61,19 @@ class BardEngine(EngineInterface):
 
     @classmethod
     def create(cls) -> EngineInterface:
-        socks_url = read_ssm_param(param_name="SOCKS5_URL")
-        os.environ["all_proxy"] = socks_url
-        token = read_ssm_param(param_name="BARD_TOKEN")
-        psid_ts = read_ssm_param(param_name="BARD_1PSIDTS")
-        chatbot = Chatbot(secure_1psid=token, secure_1psidts=psid_ts, timeout=40)
+        # socks_url = read_ssm_param(param_name="SOCKS5_URL")
+        # os.environ["all_proxy"] = socks_url
+        s3_path = read_ssm_param(param_name="COOKIES_FILE")
+        bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
+        auth_cookies = read_json_from_s3(bucket_name, "bard-cookies.json")
+        psid = [
+            x.get("value") for x in auth_cookies if x.get("name") == "__Secure-1PSID"
+        ][0]
+        psid_ts = [
+            x.get("value") for x in auth_cookies if x.get("name") == "__Secure-1PSIDTS"
+        ][0]
+
+        chatbot = Chatbot(secure_1psid=psid, secure_1psidts=psid_ts, timeout=40)
         return BardEngine(chatbot)
 
     def as_markdown(self, input: str) -> str:

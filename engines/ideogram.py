@@ -7,7 +7,6 @@ import requests
 
 from .common_utils import (
     encode_message,
-    escape_markdown_v2,
     read_ssm_param,
 )
 from .conversation_history import ConversationHistory
@@ -57,8 +56,7 @@ def get_images(prompt: str, userConfig: dict) -> list:
     )
     if not response.ok:
         logging.error(response.text)
-        list.append(str(response))
-        return list
+        raise Exception(f"Error response {str(response)}")
 
     response_body = response.json()
     logging.info(response_body)
@@ -114,15 +112,7 @@ def sqs_handler(event, context):
         logging.info(config)
         list = []
         if prompt is not None and prompt.strip():
-            try:
-                list = get_images(prompt=prompt, userConfig=config)
-            except Exception as e:
-                if "prompt has been blocked" in str(e):
-                    message = escape_markdown_v2(str(e))
-                    list = [message]
-                else:
-                    logging.error(e)
-                    logging.info(payload)
+            list = get_images(prompt=prompt, userConfig=config)
         else:
             # for testing purposes
             list = [
