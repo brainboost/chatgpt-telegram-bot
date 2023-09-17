@@ -2,6 +2,7 @@ import asyncio
 import logging
 
 import boto3
+import requests
 from telegram.ext import Application
 
 logging.basicConfig()
@@ -32,6 +33,7 @@ async def set_webhook():
                 ],
                 secret_token=secret,
             )
+        
         __encode_hash_monster_callback_url(_ssm_client)
 
     except Exception as e:
@@ -43,11 +45,28 @@ def lambda_handler(event, context):
 
 
 def __encode_hash_monster_callback_url(ssm_client) -> None:
-    url = ssm_client.get_parameter(Name="MONSTERAPI_CALLBACK_URL")["Parameter"]["Value"]
-    if "0x" in url:
+    callback = ssm_client.get_parameter(Name="MONSTERAPI_CALLBACK_URL")["Parameter"]["Value"]
+    token = ssm_client.get_parameter(Name="MONSTER_API_KEY")["Parameter"]["Value"]
+    headers = {
+        "accept": "application/json",
+        "authorization": f"Bearer {token}"
+    }
+    url = "https://api.monsterapi.ai/v1/webhook"
+    response = requests.get(url, headers=headers)
+    if not response.ok:
+        return False
+    items = response.json()
+    if any(item["url_name":] == callback for item in items):
         return
-    hashed = hex(hash(str(url)))
-    logging.info("hashing MonsterApi webhook")
-    ssm_client.put_parameter(
-        Name="MONSTERAPI_CALLBACK_URL", Value=hashed, Type="String", Overwrite=True
-    )
+    
+    hashed = hex(hash(str(callback)))
+    logging.info(f"Hashing MonsterApi webhook {callback} to name {hashed}")
+    payload = {
+    "webhook_url": callback,
+    "url_name": hashed,
+    }
+    post_response = requests.post(url, json=payload, headers=headers)
+    if post_response.ok:
+        ssm_client.put_parameter(
+            Name="MONSTERAPI_CALLBACK_URL", Value=hashed, Type="String", Overwrite=True
+        )

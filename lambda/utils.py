@@ -19,22 +19,39 @@ esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
 
 
 def send_action(action):
-    """Sends `action` while processing func command."""
+    """Sends `action` while processing async func command."""
 
     def decorator(func):
         @wraps(func)
         async def command_func(update: Update, context, *args, **kwargs):
+            if update.effective_chat is None:
+                return
             await context.bot.send_chat_action(
                 chat_id=update.effective_chat.id, action=action
             )
             return await func(update, context, *args, **kwargs)
-
         return command_func
-
     return decorator
 
 
 send_typing_action = send_action(constants.ChatAction.TYPING)
+
+
+def restricted(allowed_roles: list):
+    """Restricts a handler to allow only listed users."""
+    
+    def decorator(func):
+        @wraps(func)
+        async def wrapped(update: Update, context, *args, **kwargs):
+            if update.effective_user is None:
+                return
+            user_id = update.effective_user.id
+            if str(user_id) not in allowed_roles:
+                logging.error(f"Unauthorized access denied for {user_id}.")
+                return
+            return await func(update, context, *args, **kwargs)
+        return wrapped
+    return decorator
 
 
 def generate_transcription(file):
@@ -64,7 +81,7 @@ def generate_transcription(file):
         status = transcribe_client.get_transcription_job(TranscriptionJobName=job_name)
         job_status = status["TranscriptionJob"]["TranscriptionJobStatus"]
 
-    transcript = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]
+    transcript = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"] # type: ignore
     logging.info(transcript)
 
     output_location = f"/tmp/output_{message_id}.json"

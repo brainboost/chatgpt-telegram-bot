@@ -27,7 +27,7 @@ class LLama2(EngineInterface):
         self.headers = {
             # "x-api-key": apiKey,
             "authorization": f"Bearer {token}",
-            "content-type": "multipart/form-data; boundary=---011000010111000001101001",
+            "content-type": "application/json",
             "accept": "application/json",
         }
 
@@ -42,17 +42,15 @@ class LLama2(EngineInterface):
         return "llama"
 
     def ask(self, text: str, userConfig: dict) -> str:
-        payload = (
-            '-----011000010111000001101001\r\nContent-Disposition: form-data; name="prompt"\r\n\r\n'
-            + text
-            + "\r\n-----011000010111000001101001--\r\n\r\n"
-            + 'Content-Disposition: form-data; name="max_length"\r\n\r\n512\r\n-----011000010111000001101001--\r\n\r\n'
-        )
+        payload = {
+            "prompt": text,
+            "max_length": 512,
+        }
         logging.info(add_task_url)
         response = requests.post(
             url=add_task_url,
             headers=self.headers,
-            data=payload,
+            data=json.dumps(payload),
         )
         response_body = response.json()
         logging.info(response_body)

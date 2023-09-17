@@ -54,6 +54,9 @@ UA    Ukrainian"""
     elif text.endswith("imagine"):
         message = """\/imagine \- Creating images using *DALL\-E 2* AI engine\. Usage: \/imagine PROMPT
 Example: \/imagine Cute kitty plays with yarn ball"""
+    elif text.endswith("ideogram"):
+        message = """\/ideogram \- Creating images and typographics using *Ideogram.ai* engine\. Usage: \/imagine PROMPT
+Example: \/imagine Cute kitty plays with yarn ball"""
     elif (
         text.endswith("creative")
         or text.endswith("balanced")
@@ -72,7 +75,7 @@ This command persist it's value in the user configuration, so it will work until
     \• \/bard
     \• \/chatgpt
     \• \/llama
-    \• \/set\_engines"""
+    \• \/engines"""
     else:
         message = """If you need help with bot command, please type the command  
     with \/help prefix, for example *\/help tr*"""
@@ -88,11 +91,12 @@ Supported commands are:
 \/help \- Get help on a command\. Usage: \/help COMMAND
 \/tr \- Translate text to other language\(s\) using DeepL API
 \/imagine \- Generate images using DALL\-E 2 engine
+\/ideogram \- Generate images using Ideogram.ai engine
 \/bing \- Switch answers to Bing AI model
 \/bard \- Switch answers to Google Bard AI model
 \/chatgpt \- Switch answers to OpenAI ChatGPT model
 \/llama \- Switch answers to Meta LLama2 AI model
-\/set\_engines \- Activates multiple AI engines at once, comma separated list
+\/engines \- Activates multiple AI engines at once, comma separated list
 \/creative \- Set tone of responses to more creative on Bing model \(Default\)
 \/balanced \- Set tone of responses to more balanced
 \/precise \- Set tone of responses to more precise"""

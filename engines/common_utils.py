@@ -7,7 +7,7 @@ import boto3
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
-esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
+esc_pattern = re.compile(f"(?<!\\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\\|)")
 
 
 def read_ssm_param(param_name: str) -> str:

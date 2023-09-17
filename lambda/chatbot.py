@@ -29,6 +29,8 @@ from .utils import (
     generate_transcription,
     read_ssm_param,
     recursive_stringify,
+    restricted,
+    send_action,
     send_typing_action,
     split_long_message,
 )
@@ -99,38 +101,54 @@ logging.info(f"admins:{admins}")
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None \
+        or update.effective_message is None \
+        or update.effective_message.text is None:
+        return
+    
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    command = update.message.text.strip("/").lower()
+    command = update.effective_message.text.strip("/").split()[0].lower()
     envelop = {
         "type": "command",
         "user_id": update.effective_user.id,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
         "text": command,
-        "chat_id": update.effective_chat.id,
+        "chat_id": getattr(update.effective_chat, "id", None),
         "timestamp": update.effective_message.date.timestamp,
         "engines": config["engines"],
     }
     sns.publish(TopicArn=sns_topic, Message=json.dumps(envelop))
-    await update.message.reply_text(text="Conversation has been reset")
+    await update.effective_message.reply_text(text="Conversation has been reset")
 
 
 async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None \
+        or update.effective_message is None \
+        or update.effective_message.text is None:
+        return
+    
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    style = update.message.text.strip("/").split("@")[0].lower()
+    style = update.effective_message.text.strip("/").split("@")[0].lower()
     config["style"] = style
     logging.info(f"user: {user_id} set engine style to: '{style}'")
     user_config.write(user_id, config)
-    await update.message.reply_text(text=f"Bot engine style has been set to '{style}'")
+    await update.effective_message.reply_text(
+        text=f"Bot engine style has been set to '{style}'")
 
+@send_typing_action
+async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None \
+        or update.effective_message is None \
+        or update.effective_message.text is None:
+        return
 
-async def set_engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     config = user_config.read(user_id)
     engine_types = (
-        update.message.text.strip("/")
+        update.effective_message.text.strip("/")
         .split("@")[0]
         .lower()
         .replace("engines", "")
@@ -140,42 +158,66 @@ async def set_engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     logging.info(f"engines: {engine_types}")
     if not engine_types:
         engine_types = config["engines"]
-        await update.message.reply_text(text=f"Bot engine(s): {engine_types}")
+        await update.effective_message.reply_text(text=f"Bot engine(s): {engine_types}")
         return
+    
     if "," in engine_types:
         config["engines"] = engine_types.split(",")
     else:
         config["engines"] = [engine_types]
     logging.info(f"user: {user_id} set engine to: {engine_types}")
     user_config.write(user_id, config)
-    await update.message.reply_text(text=f"Bot engine has been set to {engine_types}")
+    await update.effective_message.reply_text(text=f"Bot engine has been set to {engine_types}")
 
 
+@restricted(admins)
 @send_typing_action
 async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.message is None:
+        return
     update.message.text = example_tg
     await process_message(update, context)
 
 
+@restricted(admins)
 @send_typing_action
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await process_message(update, context)
 
 
-@send_typing_action
+@send_action(constants.ChatAction.UPLOAD_PHOTO)
 async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None \
+        or update.effective_message is None \
+        or update.effective_message.text is None:
+        return
+    
+    user_id = update.effective_user.id
+    config = user_config.read(user_id)
+    command = update.effective_message.text.strip("/").split()[0].lower()
     try:
-        user_id = int(update.message.from_user.id)
-        config = user_config.read(user_id)
-        # logging.info(context.args)
-        await __process_images(update, context, config)
+        await __process_images(update, context, config, command)
     except Exception as e:
         logging.error(str(e))
+        await update.effective_message.reply_text(
+            text="An error occured when trying to generate images")
 
 
-async def grab_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.message.from_user.id)
-    if user_id not in admins:
+@send_typing_action
+async def uploads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if update.effective_user is None \
+        or update.effective_message is None \
+        or update.effective_message.text is None:
+        return
+    
+    logging.info(update.effective_message.caption)
+    logging.info(update.effective_message.text)
+
+
+@send_typing_action
+@restricted(admins)
+async def grab_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if  update.effective_message is None:
         return
     try:
         query_string = "fields @message | filter @message like /Error/"
@@ -189,11 +231,10 @@ async def grab_logs(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             text = recursive_stringify(results)
             parts = split_long_message(text, "logs", 4060)
             for part in parts:
-                await update.message.reply_text(text=part)
-
+                await update.effective_message.reply_text(text=part)
     except Exception as e:
         logging.error(e)
-        await update.message.reply_text(
+        await update.effective_message.reply_text(
             text=f"Error: ```{str(e)}```",
             parse_mode=constants.ParseMode.MARKDOWN_V2,
         )
@@ -221,19 +262,19 @@ def __query_cloudwatch_logs(query_string):
 
         query_results = query_status["results"]
         return query_results
-
     except Exception as e:
         logging.error(f"Error querying CloudWatch Logs:{e}")
         return []
 
 
+@send_typing_action
+@restricted(admins)
 async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_id = str(update.message.from_user.id)
-    if user_id not in admins:
+    if  update.effective_message is None:
         return
-    await update.message.reply_text(text="Starting Redrive DLQ task")
+    await update.effective_message.reply_text(text="Starting Redrive DLQ task")
     results = __start_redrive_dlq()
-    await update.message.reply_text(
+    await update.effective_message.reply_text(
         text=f"Result: ```{json.dumps(results)}```",
         parse_mode=constants.ParseMode.MARKDOWN_V2,
     )
@@ -443,16 +484,19 @@ async def __process_translation(
         logging.error(e)
 
 
-@send_typing_action
 async def __process_images(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
-    config: UserConfig,
+    config: dict,
+    type: str,
 ):
+    if context.args is None:
+        return
+    
     prompt = " ".join(context.args)
-    # logging.info(prompt)
+    logging.info(prompt)
     envelop = {
-        "type": "images",
+        "type": type,
         "user_id": update.effective_user.id,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
@@ -462,8 +506,6 @@ async def __process_images(
         "config": config,
     }
     logging.info(envelop)
-    # engines = json.dumps(config["engines"])
-    # logging.info(engines)
     try:
         sns.publish(
             TopicArn=sns_topic,
@@ -492,23 +534,22 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["bing", "chatgpt", "bard", "llama"],
-            set_engines,
-            filters=filters.COMMAND,
+            ["bing", "chatgpt", "bard", "llama"], engines, filters=filters.COMMAND,
         )
     )
-    app.add_handler(CommandHandler("engines", set_engines, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("engines", engines, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND
         )
     )
     app.add_handler(CommandHandler("help", help_handler, filters=filters.COMMAND))
-    # app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
-    app.add_handler(CommandHandler("errors", grab_logs, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("errors", grab_errors, filters=filters.COMMAND))
     app.add_handler(CommandHandler("redrive", redrive_dlq, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
     app.add_handler(CommandHandler("imagine", imagine, filters=filters.COMMAND))
+    app.add_handler(CommandHandler("ideogram", imagine, filters=filters.COMMAND))
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("tr", tr_start, filters=filters.COMMAND)],
         states={
@@ -524,6 +565,7 @@ async def _main(event):
     app.add_handler(conv_handler)
     app.add_handler(MessageHandler(filters.ALL, process_message))
     app.add_handler(MessageHandler(filters.VOICE, process_voice_message))
+    app.add_handler(MessageHandler(filters=filters.PHOTO, callback=uploads))
 
     try:
         await app.initialize()

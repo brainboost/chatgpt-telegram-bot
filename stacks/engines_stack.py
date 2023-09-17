@@ -92,19 +92,6 @@ class EnginesStack(Stack):
             protocol=aws_sns.SubscriptionProtocol.EMAIL,
         )
 
-        request_dlq_alarm = aws_cloudwatch.Alarm(
-            self,
-            "RequestDlqAlarm",
-            alarm_name="RequestDlqAlarm",
-            alarm_description="Alarm when Request DLQ queue has messages",
-            metric=request_dlq.metric_approximate_number_of_messages_visible(),
-            threshold=0,
-            evaluation_periods=1,
-            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        )
-        request_dlq_alarm.add_alarm_action(
-            aws_cloudwatch_actions.SnsAction(self.alarm_topic)
-        )
         self.docker_file_path = str(Path(__file__).parent.parent.resolve())
 
         # AI Engine Lambdas
@@ -149,7 +136,7 @@ class EnginesStack(Stack):
         self.__create_engine(
             engine_name="Dalle",
             sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["images"]),
+                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["imagine"]),
             },
             handler=f"{ASSET_PATH}.dalle_img.sqs_handler",
         )
@@ -180,6 +167,7 @@ class EnginesStack(Stack):
         )
 
         # Add monsterapi callback handler
+
         api_callback = DockerImageFunction(
             self,
             "MonsterApiCallbackHandler",
@@ -219,6 +207,18 @@ class EnginesStack(Stack):
             "MonsterApiCallbackURLParam",
             parameter_name="MONSTERAPI_CALLBACK_URL",
             string_value=callback_lambda_url.url,
+        )
+
+        # Ideogram
+
+        self.__create_engine(
+            engine_name="Ideogram",
+            sns_filter_policy={
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["ideogram"]
+                ),
+            },
+            handler=f"{ASSET_PATH}.ideogram.sqs_handler",
         )
 
     def __create_engine(
