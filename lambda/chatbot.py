@@ -73,6 +73,7 @@ async def set_commands(application: Application) -> None:
             BotCommand("/bard", "Switch to Google Bard AI model"),
             BotCommand("/chatgpt", "Switch to OpenAI ChatGPT model"),
             BotCommand("/llama", "Switch to LLama 2 AI model"),
+            BotCommand("/claude", "Switch to Claude.ai model"),
             BotCommand("/creative", "Set tone of responses to more creative (Default)"),
             BotCommand("/balanced", "Set tone of responses to more balanced"),
             BotCommand("/precise", "Set tone of responses to more precise"),
@@ -101,11 +102,13 @@ logging.info(f"admins:{admins}")
 
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None \
-        or update.effective_message is None \
-        or update.effective_message.text is None:
+    if (
+        update.effective_user is None
+        or update.effective_message is None
+        or update.effective_message.text is None
+    ):
         return
-    
+
     user_id = update.effective_user.id
     config = user_config.read(user_id)
     command = update.effective_message.text.strip("/").split()[0].lower()
@@ -124,11 +127,13 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None \
-        or update.effective_message is None \
-        or update.effective_message.text is None:
+    if (
+        update.effective_user is None
+        or update.effective_message is None
+        or update.effective_message.text is None
+    ):
         return
-    
+
     user_id = update.effective_user.id
     config = user_config.read(user_id)
     style = update.effective_message.text.strip("/").split("@")[0].lower()
@@ -136,13 +141,17 @@ async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info(f"user: {user_id} set engine style to: '{style}'")
     user_config.write(user_id, config)
     await update.effective_message.reply_text(
-        text=f"Bot engine style has been set to '{style}'")
+        text=f"Bot engine style has been set to '{style}'"
+    )
+
 
 @send_typing_action
 async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None \
-        or update.effective_message is None \
-        or update.effective_message.text is None:
+    if (
+        update.effective_user is None
+        or update.effective_message is None
+        or update.effective_message.text is None
+    ):
         return
 
     user_id = update.effective_user.id
@@ -160,14 +169,16 @@ async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         engine_types = config["engines"]
         await update.effective_message.reply_text(text=f"Bot engine(s): {engine_types}")
         return
-    
+
     if "," in engine_types:
         config["engines"] = engine_types.split(",")
     else:
         config["engines"] = [engine_types]
     logging.info(f"user: {user_id} set engine to: {engine_types}")
     user_config.write(user_id, config)
-    await update.effective_message.reply_text(text=f"Bot engine has been set to {engine_types}")
+    await update.effective_message.reply_text(
+        text=f"Bot engine has been set to {engine_types}"
+    )
 
 
 @restricted(admins)
@@ -187,11 +198,13 @@ async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @send_action(constants.ChatAction.UPLOAD_PHOTO)
 async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None \
-        or update.effective_message is None \
-        or update.effective_message.text is None:
+    if (
+        update.effective_user is None
+        or update.effective_message is None
+        or update.effective_message.text is None
+    ):
         return
-    
+
     user_id = update.effective_user.id
     config = user_config.read(user_id)
     command = update.effective_message.text.strip("/").split()[0].lower()
@@ -200,16 +213,19 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logging.error(str(e))
         await update.effective_message.reply_text(
-            text="An error occured when trying to generate images")
+            text="An error occured when trying to generate images"
+        )
 
 
 @send_typing_action
 async def uploads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.effective_user is None \
-        or update.effective_message is None \
-        or update.effective_message.text is None:
+    if (
+        update.effective_user is None
+        or update.effective_message is None
+        or update.effective_message.text is None
+    ):
         return
-    
+
     logging.info(update.effective_message.caption)
     logging.info(update.effective_message.text)
 
@@ -217,7 +233,7 @@ async def uploads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 @send_typing_action
 @restricted(admins)
 async def grab_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if  update.effective_message is None:
+    if update.effective_message is None:
         return
     try:
         query_string = "fields @message | filter @message like /Error/"
@@ -270,7 +286,7 @@ def __query_cloudwatch_logs(query_string):
 @send_typing_action
 @restricted(admins)
 async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if  update.effective_message is None:
+    if update.effective_message is None:
         return
     await update.effective_message.reply_text(text="Starting Redrive DLQ task")
     results = __start_redrive_dlq()
@@ -492,7 +508,7 @@ async def __process_images(
 ):
     if context.args is None:
         return
-    
+
     prompt = " ".join(context.args)
     logging.info(prompt)
     envelop = {
@@ -534,7 +550,9 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["bing", "chatgpt", "bard", "llama"], engines, filters=filters.COMMAND,
+            ["bing", "chatgpt", "bard", "llama", "claude"],
+            engines,
+            filters=filters.COMMAND,
         )
     )
     app.add_handler(CommandHandler("engines", engines, filters=filters.COMMAND))

@@ -5,4 +5,5 @@ git+https://github.com/brainboost/BingImageCreator.git
 deepl
 websockets
 requests
+curl_cffi
 boto3
