@@ -221,6 +221,19 @@ class EnginesStack(Stack):
             handler=f"{ASSET_PATH}.ideogram.sqs_handler",
         )
 
+        # Claude
+
+        self.__create_engine(
+            engine_name="Claude",
+            sns_filter_policy={
+                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["text"]),
+                "engines": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["claude"]
+                ),
+            },
+            handler=f"{ASSET_PATH}.claude.sqs_handler",
+        )
+
     def __create_engine(
         self,
         engine_name: str,

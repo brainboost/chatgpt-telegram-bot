@@ -61,6 +61,9 @@ def get_images(prompt: str, userConfig: dict) -> list:
     response_body = response.json()
     logging.info(response_body)
     request_id = response_body["request_id"]
+    if not request_id:
+        raise Exception(f"Error {str(response_body)}")
+
     caption = response_body["caption"]
     list = check_metadata(request_id=request_id)
     try:

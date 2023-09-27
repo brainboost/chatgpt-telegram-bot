@@ -68,13 +68,14 @@ Available values are:
     \• *balanced*\. This mode is for when you want to have a balanced conversation with me\. I can provide information, facts, opinions, and suggestions based on your queries\. I can also chat with you about various topics and interests\. I use a polite and neutral tone in this mode\.
     \• *precise*\. This mode is for when you want to get precise and accurate answers from me\. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning\. I can also generate images based on your specifications\. I use a concise and formal tone in this mode\."""
     elif text.endswith("engines"):
-        message = """\/set\_engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
-Example: \/set\_engines bing,bard,chatgpt,llama \- all AI engines will respond simultaneously\.
+        message = """\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
+Example: \/engines bing,bard,chatgpt,llama \- all AI engines will respond simultaneously\.
 This command persist it's value in the user configuration, so it will work until any of following commands applied: 
     \• \/bing
     \• \/bard
     \• \/chatgpt
     \• \/llama
+    \• \/claude
     \• \/engines"""
     else:
         message = """If you need help with bot command, please type the command  
@@ -96,6 +97,7 @@ Supported commands are:
 \/bard \- Switch answers to Google Bard AI model
 \/chatgpt \- Switch answers to OpenAI ChatGPT model
 \/llama \- Switch answers to Meta LLama2 AI model
+\/claude \- Switch answers to Anthropic Claude.ai AI model
 \/engines \- Activates multiple AI engines at once, comma separated list
 \/creative \- Set tone of responses to more creative on Bing model \(Default\)
 \/balanced \- Set tone of responses to more balanced

@@ -67,13 +67,6 @@ class BingGpt(EngineInterface):
     def engine_type(self):
         return "bing"
 
-    def read_cookies(self, s3_path) -> dict:
-        s3 = boto3.client("s3")
-        bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
-        response = s3.get_object(Bucket=bucket_name, Key=file_name)
-        file_content = response["Body"].read().decode("utf-8")
-        return json.loads(file_content)
-
     def as_plain_text(self, item: dict) -> str:
         return re.sub(
             pattern=self.remove_links_pattern,
