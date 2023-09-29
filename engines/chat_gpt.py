@@ -68,10 +68,9 @@ instance = ChatGpt.create()
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
-# AWS SQS handler
-
 
 def sqs_handler(event, context):
+    """AWS SQS event handler"""
     for record in event["Records"]:
         payload = json.loads(record["body"])
         response = instance.ask(payload["text"], payload["config"])

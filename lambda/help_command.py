@@ -50,23 +50,23 @@ SL    Slovenian
 ES    Spanish
 SV    Swedish
 TR    Turkish
-UA    Ukrainian"""
+UA    Ukrainian"""  # noqa: E501
     elif text.endswith("imagine"):
         message = """\/imagine \- Creating images using *DALL\-E 2* AI engine\. Usage: \/imagine PROMPT
-Example: \/imagine Cute kitty plays with yarn ball"""
+Example: \/imagine Cute kitty plays with yarn ball"""  # noqa: E501
     elif text.endswith("ideogram"):
         message = """\/ideogram \- Creating images and typographics using *Ideogram.ai* engine\. Usage: \/imagine PROMPT
-Example: \/imagine Cute kitty plays with yarn ball"""
+Example: \/imagine Cute kitty plays with yarn ball"""  # noqa: E501
     elif (
         text.endswith("creative")
         or text.endswith("balanced")
         or text.endswith("precise")
     ):
-        message = """Sets the tone of responses to the Bing AI engine\. Has no effect on other engines\. Each mode will start a new conversation
+        message = """Sets the tone of responses to the Bing AI engine\. Has no effect to other engines\. Each mode will start a new conversation
 Available values are: 
     \• *creative* (default)\. This mode is for when you want to have fun and explore your imagination with me\. I can generate content such as poems, stories, jokes, images, and more\. I can also help you improve your own content by rewriting, optimizing, or adding details\. I use a friendly and informal tone in this mode\.
     \• *balanced*\. This mode is for when you want to have a balanced conversation with me\. I can provide information, facts, opinions, and suggestions based on your queries\. I can also chat with you about various topics and interests\. I use a polite and neutral tone in this mode\.
-    \• *precise*\. This mode is for when you want to get precise and accurate answers from me\. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning\. I can also generate images based on your specifications\. I use a concise and formal tone in this mode\."""
+    \• *precise*\. This mode is for when you want to get precise and accurate answers from me\. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning\. I can also generate images based on your specifications\. I use a concise and formal tone in this mode\."""  # noqa: E501
     elif text.endswith("engines"):
         message = """\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
 Example: \/engines bing,bard,chatgpt,llama \- all AI engines will respond simultaneously\.
@@ -76,7 +76,7 @@ This command persist it's value in the user configuration, so it will work until
     \• \/chatgpt
     \• \/llama
     \• \/claude
-    \• \/engines"""
+    \• \/engines"""  # noqa: E501
     else:
         message = """If you need help with bot command, please type the command  
     with \/help prefix, for example *\/help tr*"""
@@ -101,6 +101,6 @@ Supported commands are:
 \/engines \- Activates multiple AI engines at once, comma separated list
 \/creative \- Set tone of responses to more creative on Bing model \(Default\)
 \/balanced \- Set tone of responses to more balanced
-\/precise \- Set tone of responses to more precise"""
+\/precise \- Set tone of responses to more precise"""  # noqa: E501
 
     await update.message.reply_text(message, parse_mode=constants.ParseMode.MARKDOWN_V2)

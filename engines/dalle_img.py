@@ -34,28 +34,22 @@ history = ConversationHistory()
 
 
 def sqs_handler(event, context):
+    """AWS SQS event handler"""
     for record in event["Records"]:
         payload = json.loads(record["body"])
         prompt = payload["text"]
         list = []
-        if prompt is not None and prompt.strip():
-            try:
-                list = imageGen.get_images(prompt)
-            except Exception as e:
-                if "prompt has been blocked" in str(e):
-                    message = escape_markdown_v2(str(e))
-                    list = [message]
-                else:
-                    logging.error(e)
-                    logging.info(payload)
-        else:
-            # for testing purposes
-            list = [
-                "https://picsum.photos/200#1",
-                "https://picsum.photos/200#2",
-                "https://picsum.photos/200#3",
-                "https://picsum.photos/200#4",
-            ]
+        if prompt is None or not prompt.strip():
+            return
+        try:
+            list = imageGen.get_images(prompt)
+        except Exception as e:
+            if "prompt has been blocked" in str(e):
+                message = escape_markdown_v2(str(e))
+                list = [message]
+            else:
+                logging.error(e)
+                logging.info(payload)
         payload["response"] = list
         user_id = payload["user_id"]
         conversation_id = f"{payload['chat_id']}_{user_id}_{payload['update_id']}"

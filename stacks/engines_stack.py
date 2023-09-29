@@ -43,6 +43,15 @@ class EnginesStack(Stack):
                 ),
             ],
         )
+        self.lambda_role.add_to_policy(
+            aws_iam.PolicyStatement(
+                actions=[
+                    "sqs:SendMessage",
+                    "sqs:DeleteMessage",
+                ],
+                resources=["*"],
+            )
+        )
 
         # SNS request topic (one for all engines)
 
@@ -58,7 +67,6 @@ class EnginesStack(Stack):
             parameter_name="REQUESTS_SNS_TOPIC_ARN",
             string_value=self.request_topic.topic_arn,
         )
-
         request_dlq = aws_sqs.Queue(
             self,
             "Request-Queues-DLQ",
@@ -72,18 +80,15 @@ class EnginesStack(Stack):
             max_receive_count=1,
             queue=request_dlq,
         )
-
         self.alarm_topic = aws_sns.Topic(
             self,
             "EnginesErrorsAlarms",
             topic_name="EnginesErrorsAlarms",
             display_name="Engines Errors Alarms Topic",
         )
-
         notify_email = aws_ssm.StringParameter.value_for_string_parameter(
             self, "ALARM_EMAIL"
         )
-
         aws_sns.Subscription(
             self,
             "EnginesAlarmEmailSubscription",
@@ -91,7 +96,6 @@ class EnginesStack(Stack):
             endpoint=notify_email,
             protocol=aws_sns.SubscriptionProtocol.EMAIL,
         )
-
         self.docker_file_path = str(Path(__file__).parent.parent.resolve())
 
         # AI Engine Lambdas
@@ -191,7 +195,7 @@ class EnginesStack(Stack):
             evaluation_periods=1,
             datapoints_to_alarm=1,
             treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-            alarm_description="Alarm when MonsterApi callback handler lambda has errors",
+            alarm_description="Alarm when MonsterApi callback lambda has errors",
             comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         )
         error_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(self.alarm_topic))
@@ -221,6 +225,47 @@ class EnginesStack(Stack):
             handler=f"{ASSET_PATH}.ideogram.sqs_handler",
         )
 
+        # Add ideogram result queue with delayed message to retrieve results when ready
+        resultQueue = aws_sqs.Queue(
+            self,
+            "Ideogram-Result-Queue",
+            queue_name="Ideogram-Result-Queue",
+            removal_policy=RemovalPolicy.DESTROY,
+            visibility_timeout=Duration.seconds(5),
+            delivery_delay=Duration.seconds(5),
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            dead_letter_queue=aws_sqs.DeadLetterQueue(
+                max_receive_count=1,
+                queue=aws_sqs.Queue(
+                    self,
+                    "Ideogram-Result-Queue-DLQ",
+                    queue_name="Ideogram-Result-Queue-DLQ",
+                    removal_policy=RemovalPolicy.DESTROY,
+                    encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+                    retention_period=Duration.days(3),
+                    enforce_ssl=True,
+                ),
+            ),
+            enforce_ssl=True,
+        )
+        resultHandler = DockerImageFunction(
+            self,
+            "IdeogramResultHandler",
+            function_name="IdeogramResultHandler",
+            code=DockerImageCode.from_image_asset(
+                directory=self.docker_file_path,
+                file="Dockerfile",
+                exclude=["cdk.out"],
+                cmd=[f"{ASSET_PATH}.ideogram_result.sqs_handler"],
+            ),
+            # timeout=Duration.minutes(1),
+            # memory_size=256,
+            role=self.lambda_role,
+        )
+        resultHandler.add_event_source(
+            aws_lambda_event_sources.SqsEventSource(resultQueue)
+        )
+
         # Claude
 
         self.__create_engine(
@@ -240,6 +285,8 @@ class EnginesStack(Stack):
         sns_filter_policy: any,
         handler: str,
     ) -> None:
+        """Creates infrastructure for the AI engine handler (queue-lambda-alarm)."""
+
         queue = aws_sqs.Queue(
             self,
             f"{engine_name}-Request-Queue",
@@ -257,7 +304,7 @@ class EnginesStack(Stack):
                 filter_policy=sns_filter_policy,
             )
         )
-        handler = DockerImageFunction(
+        lambda_fn = DockerImageFunction(
             self,
             f"{engine_name}Handler",
             function_name=f"{engine_name}Handler",
@@ -271,12 +318,12 @@ class EnginesStack(Stack):
             memory_size=256,
             role=self.lambda_role,
         )
-        handler.add_event_source(aws_lambda_event_sources.SqsEventSource(queue))
+        lambda_fn.add_event_source(aws_lambda_event_sources.SqsEventSource(queue))
         error_alarm = aws_cloudwatch.Alarm(
             self,
             f"{engine_name}LambdaErrors",
             alarm_name=f"{engine_name}LambdaErrors",
-            metric=handler.metric_errors(),
+            metric=lambda_fn.metric_errors(),
             threshold=1,
             evaluation_periods=1,
             datapoints_to_alarm=1,

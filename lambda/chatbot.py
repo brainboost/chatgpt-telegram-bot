@@ -52,7 +52,7 @@ pre-formatted fixed-width code block
 pre-formatted fixed-width code block written in the Python programming language
 ```
 text with links. And dots. [\[2\]](https://github.com/huuhoa/adaptivecards)
-"""
+"""  # noqa: E501
 LANG, TEXT = range(2)
 
 logging.basicConfig()
@@ -504,7 +504,7 @@ async def __process_images(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     config: dict,
-    type: str,
+    img_type: str,
 ):
     if context.args is None:
         return
@@ -512,7 +512,7 @@ async def __process_images(
     prompt = " ".join(context.args)
     logging.info(prompt)
     envelop = {
-        "type": type,
+        "type": img_type,
         "user_id": update.effective_user.id,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
