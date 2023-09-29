@@ -35,7 +35,7 @@ def response_handler(event, context) -> None:
             parts = split_long_message(
                 message, f"*__{payload['engine']}__*", MAX_MESSAGE_SIZE
             )
-            logging.info(f"Sending message in {parts.len()} parts")
+            logging.info(f"Sending message in {parts.__len__()} parts")
             for part in parts:
                 __send_text(chat_id, message_id, part)
 

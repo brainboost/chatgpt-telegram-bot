@@ -1,7 +1,6 @@
 import json
 import logging
 import re
-import time
 import uuid
 
 import boto3
@@ -43,8 +42,7 @@ class Claude(EngineInterface):
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) \
-              Gecko/20100101 Firefox/117.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0",  # noqa: E501
         }
         self.parent_id = self.get_organization()
         self.history = ConversationHistory()
@@ -52,13 +50,15 @@ class Claude(EngineInterface):
     def reset_chat(self) -> None:
         self.conversation_id = self.__generate_uuid()
         url = f"{base_url}/api/organizations/{self.parent_id}/chat_conversations"
-        payload = json.dumps({"uuid": self.conversation_id, "name": str(time.time())})
+        payload = json.dumps({"uuid": self.conversation_id, "name": ""})
         response = requests.post(
             url, headers=self.headers, data=payload, impersonate=browser_version
         )
-        logging.info(response)
+        logging.info(response.status_code)
         if not response.ok:
-            logging.error(f"Cannot create a new chat. {response.reason}")
+            e = f"Cannot create a new chat. Request returned {response.status_code}"
+            logging.error(e)
+            raise Exception(e)
         logging.info(f"Claude chat has been reset. New ID {self.conversation_id}")
 
     def ask(self, text: str, userConfig: dict) -> str:
@@ -79,8 +79,7 @@ class Claude(EngineInterface):
     def __generate_uuid(self) -> str:
         random_uuid = uuid.uuid4()
         random_uuid_str = str(random_uuid)
-        formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-\
-          {random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"
+        formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-{random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"  # noqa: E501
         return formatted_uuid
 
     def get_organization(self):
@@ -94,7 +93,27 @@ class Claude(EngineInterface):
         logging.info(f"Got organisationID {uuid}")
         return uuid
 
+    def set_title(self, prompt: str) -> str:
+        payload = {
+            "organization_uuid": self.parent_id,
+            "conversation_uuid": self.conversation_id,
+            "message_content": prompt,
+            "recent_titles": [],
+        }
+        response = requests.post(
+            url=f"{base_url}/api/generate_chat_title",
+            headers=self.headers,
+            data=json.dumps(payload),
+            impersonate=browser_version,
+        )
+        if not response.ok:
+            logging.error(response.text)
+            raise Exception(f"Error response {str(response)}")
+        title = response.json()["title"]
+        return title
+
     def send_message(self, prompt, attachment=None, timeout=500):
+        self.set_title(prompt=prompt)
         attachments = []
         if attachment:
             attachment_response = self.upload_attachment(attachment)
@@ -111,8 +130,8 @@ class Claude(EngineInterface):
                     "timezone": "Europe/Warsaw",
                     "model": "claude-2",
                 },
-                "organization_uuid": f"{self.parent_id}",
-                "conversation_uuid": f"{self.conversation_id}",
+                "organization_uuid": self.parent_id,
+                "conversation_uuid": self.conversation_id,
                 "text": f"{prompt}",
                 "attachments": attachments,
             }
@@ -134,7 +153,7 @@ class Claude(EngineInterface):
         completions = []
         for data_string in data_strings:
             json_str = data_string[6:].strip()
-            logging.info(json_str)
+            # logging.info(json_str)
             data = json.loads(json_str)
             if "completion" in data:
                 completions.append(data["completion"])
