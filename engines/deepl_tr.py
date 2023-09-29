@@ -23,6 +23,7 @@ def __parse_languages(lang: str) -> list:
 
 
 def sqs_handler(event, context):
+    """AWS SQS event handler"""
     for record in event["Records"]:
         payload = json.loads(record["body"])
         # logging.info(payload)
@@ -39,5 +40,4 @@ def sqs_handler(event, context):
 
             payload["engine"] = lang.replace("-", "\-")
             payload["response"] = encode_message(result)
-            # logging.info(payload)
             sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

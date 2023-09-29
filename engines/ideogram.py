@@ -1,32 +1,37 @@
 import json
 import logging
-import time
 
 import boto3
-import requests
+from curl_cffi import requests
 
 from .common_utils import (
-    encode_message,
     read_ssm_param,
 )
 from .conversation_history import ConversationHistory
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
-post_task_url = "https://ideogram.ai/api/images/sample"
-retrieve_metadata_url = "https://ideogram.ai/api/images/retrieve_metadata_request_id/"
-get_images_url = "https://ideogram.ai/api/images/direct/"
+
+base_url = "https://ideogram.ai"
+browser_version = "chrome110"
+
+post_task_url = f"{base_url}/api/images/sample"
+retrieve_metadata_url = f"{base_url}/api/images/retrieve_metadata_request_id/"
+get_images_url = f"{base_url}/api/images/direct/"
 
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
+ideogram_result_queue = results_queue.replace(
+    results_queue.split("/")[-1], "Ideogram-Result-Queue"
+)
 sqs = boto3.session.Session().client("sqs")
 history = ConversationHistory()
 token = read_ssm_param(param_name="IDEOGRAM_TOKEN")
 user_id = read_ssm_param(param_name="IDEOGRAM_USER")
 channel_id = read_ssm_param(param_name="IDEOGRAM_CHANNEL")
 headers = {
-    "Cookie": f"session_cookie={token}",
-    "Origin": "https://ideogram.ai",
-    "Referer": "https://ideogram.ai/",
+    "Cookie": f"session_cookie={token};",
+    "Origin": base_url,
+    "Referer": base_url + "/",
     "DNT": "1",
     "Accept-Encoding": "gzip, deflate, br",
     "Content-Type": "application/json",
@@ -37,8 +42,7 @@ headers = {
 }
 
 
-def get_images(prompt: str, userConfig: dict) -> list:
-    list = []
+def request_images_generation(prompt: str) -> str:
     payload = {
         "aspect_ratio": "square",
         "channel_id": channel_id,
@@ -53,6 +57,7 @@ def get_images(prompt: str, userConfig: dict) -> list:
         url=post_task_url,
         headers=headers,
         data=json.dumps(payload),
+        impersonate=browser_version,
     )
     if not response.ok:
         logging.error(response.text)
@@ -63,85 +68,24 @@ def get_images(prompt: str, userConfig: dict) -> list:
     request_id = response_body["request_id"]
     if not request_id:
         raise Exception(f"Error {str(response_body)}")
-
-    caption = response_body["caption"]
-    list = check_metadata(request_id=request_id)
-    try:
-        history.write(
-            conversation_id=user_id,
-            request_id=request_id,
-            user_id=userConfig["user_id"],
-            conversation={
-                "caption": caption,
-                "images": json.dumps(list),
-                "config": userConfig,
-            },
-        )
-    except Exception as e:
-        logging.error(
-            f"request_id: {request_id}, user_id: {user_id}, error: {e}, item: {response_body}"
-        )
-    return list
+    return request_id
 
 
-def check_metadata(request_id: str) -> list:
-    resp = []
-    while not resp:
-        response = requests.get(
-            url=retrieve_metadata_url + request_id,
-            headers=headers,
-        )
-        logging.info(response)
-        if not response.ok:
-            resp.append(str(response))
-            logging.error(response.text)
-            return resp
-
-        resp_obj = response.json()
-        if "resolution" not in resp_obj or resp_obj["resolution"] < 1024:
-            time.sleep(2)
-            continue
-
-        for response in resp_obj["responses"]:
-            resp.append(get_images_url + response["response_id"])
-    return resp
+def send_retrieving_event(event: object) -> None:
+    logging.info(event)
+    body = json.dumps(event)
+    sqs.send_message(QueueUrl=ideogram_result_queue, MessageBody=body)
 
 
 def sqs_handler(event, context):
+    """AWS SQS event handler"""
     for record in event["Records"]:
         payload = json.loads(record["body"])
         prompt = payload["text"]
-        config = payload["config"]
-        logging.info(config)
-        list = []
-        if prompt is not None and prompt.strip():
-            list = get_images(prompt=prompt, userConfig=config)
-        else:
-            # for testing purposes
-            list = [
-                "https://picsum.photos/200#1",
-                "https://picsum.photos/200#2",
-                "https://picsum.photos/200#3",
-                "https://picsum.photos/200#4",
-            ]
-        payload["response"] = list
-        user_id = payload["user_id"]
-        conversation_id = f"{payload['chat_id']}_{user_id}_{payload['update_id']}"
-        try:
-            history.write(
-                conversation_id=conversation_id,
-                request_id=f'img_{payload["update_id"]}',
-                user_id=user_id,
-                conversation=payload,
-            )
-        except Exception as e:
-            logging.error(
-                f"conversation_id: {conversation_id}, error: {e}, item: {payload}"
-            )
-
-        logging.info(list)
-        message = "\n".join(list)
-        payload["response"] = encode_message(message)
-        payload["engine"] = "Ideogram"
-        # logging.info(payload)
-        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+        if prompt is None or not prompt.strip():
+            return
+        request_id = request_images_generation(prompt=prompt)
+        payload["request_id"] = request_id
+        payload["headers"] = headers
+        payload["queue_url"] = ideogram_result_queue
+        send_retrieving_event(payload)

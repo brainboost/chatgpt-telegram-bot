@@ -25,9 +25,6 @@ browser_version = "chrome110"
 
 class Claude(EngineInterface):
     def __init__(self, cookies) -> None:
-        self.remove_links_pattern = re.compile(r"\[\^\d+\^\]\s?")
-        self.ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-        self.esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
         cookies_str = ""
         for cookie_data in cookies:
             cookies_str += f"{cookie_data['name']}={cookie_data['value']};"
@@ -46,7 +43,8 @@ class Claude(EngineInterface):
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) \
+              Gecko/20100101 Firefox/117.0",
         }
         self.parent_id = self.get_organization()
         self.history = ConversationHistory()
@@ -72,7 +70,6 @@ class Claude(EngineInterface):
         return escape_markdown_v2(result)
 
     def close(self):
-        # self.chatbot.close()
         logging.info("called 'close' method")
 
     @property
@@ -82,7 +79,8 @@ class Claude(EngineInterface):
     def __generate_uuid(self) -> str:
         random_uuid = uuid.uuid4()
         random_uuid_str = str(random_uuid)
-        formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-{random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"
+        formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-\
+          {random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"
         return formatted_uuid
 
     def get_organization(self):
@@ -156,10 +154,8 @@ results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
 
-# AWS SQS handler
-
-
 def sqs_handler(event, context):
+    """AWS SQS event handler"""
     for record in event["Records"]:
         payload = json.loads(record["body"])
         response = instance.ask(payload["text"], payload["config"])

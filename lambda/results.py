@@ -30,12 +30,12 @@ def response_handler(event, context) -> None:
         message_id = payload["message_id"]
         message = decode_message(payload["response"])
         if "imagine" in payload["type"] or "ideogram" in payload["type"]:
-            caption = payload["text"]
-            __send_images(chat_id, message_id, message, caption)
+            __send_images(chat_id, message_id, message)
         else:
             parts = split_long_message(
                 message, f"*__{payload['engine']}__*", MAX_MESSAGE_SIZE
             )
+            logging.info(f"Sending message in {parts.len()} parts")
             for part in parts:
                 __send_text(chat_id, message_id, part)
 
@@ -77,8 +77,7 @@ def __send_text(chat_id: str, message_id: str, text: str) -> None:
         )
 
 
-def __send_images(chat_id: str, message_id: str, message: str, caption: str) -> None:
-    logging.info(message)
+def __send_images(chat_id: str, message_id: str, message: str) -> None:
     for url in iter(message.splitlines()):
         if not __is_valid_url(url):
             logging.error(f"chat_id:{chat_id}, message_id: {message_id}")
@@ -88,13 +87,13 @@ def __send_images(chat_id: str, message_id: str, message: str, caption: str) -> 
                 bot.send_photo(
                     chat_id=chat_id,
                     photo=url,
-                    # caption=caption,
                     reply_to_message_id=message_id,
                     disable_notification=True,
                 )
             )
         except Exception as e:
             logging.error(f"Cannot send message, error: {e}, \nPayload: {url}")
+            logging.info(message)
 
 
 def __is_valid_url(url) -> bool:
