@@ -33,7 +33,7 @@ class EnginesStack(Stack):
                     "service-role/AWSLambdaBasicExecutionRole"
                 ),
                 aws_iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "AmazonS3ReadOnlyAccess"
+                    "AmazonS3FullAccess"
                 ),
                 aws_iam.ManagedPolicy.from_aws_managed_policy_name(
                     "AmazonSSMFullAccess"
