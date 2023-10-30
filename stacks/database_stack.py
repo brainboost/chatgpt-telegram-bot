@@ -47,3 +47,25 @@ class DatabaseStack(Stack):
             ),
             projection_type=dynamodb.ProjectionType.ALL,
         )
+
+        contextTable = dynamodb.Table(
+            self,
+            "user-context-table",
+            table_name="user-context",
+            partition_key=dynamodb.Attribute(
+                name="user_chat", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="engine", type=dynamodb.AttributeType.STRING
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+            time_to_live_attribute="exp",
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+        contextTable.add_global_secondary_index(
+            index_name="conversation-id-index",
+            partition_key=dynamodb.Attribute(
+                name="conversation_id", type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
