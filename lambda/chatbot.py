@@ -111,13 +111,13 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    command = update.effective_message.text.strip("/").split()[0].lower()
     envelop = {
         "type": "command",
         "user_id": update.effective_user.id,
+        "username": update.effective_user.name,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
-        "text": command,
+        "text": update.effective_message.text,
         "chat_id": getattr(update.effective_chat, "id", None),
         "timestamp": update.effective_message.date.timestamp,
         "engines": config["engines"],
@@ -440,6 +440,7 @@ async def __process_text(
     envelop = {
         "type": "text",
         "user_id": update.effective_user.id,
+        "username": update.effective_user.name,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
         "text": chat_text,
@@ -475,6 +476,7 @@ async def __process_translation(
     envelop = {
         "type": "translate",
         "user_id": update.effective_user.id,
+        "username": update.effective_user.name,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
         "text": text,
@@ -514,6 +516,7 @@ async def __process_images(
     envelop = {
         "type": img_type,
         "user_id": update.effective_user.id,
+        "username": update.effective_user.name,
         "update_id": update.update_id,
         "message_id": update.effective_message.id,
         "text": prompt,
