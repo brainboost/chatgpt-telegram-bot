@@ -18,6 +18,17 @@ class DatabaseStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
+        dynamodb.Table(
+            self,
+            "configurations-table",
+            table_name="configurations",
+            partition_key=dynamodb.Attribute(
+                name="user_id", type=dynamodb.AttributeType.STRING
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+
         conversationTable = dynamodb.Table(
             self,
             "conversations-table",
@@ -48,12 +59,45 @@ class DatabaseStack(Stack):
             projection_type=dynamodb.ProjectionType.ALL,
         )
 
+        new_conversationTable = dynamodb.Table(
+            self,
+            "user-conversations-table",
+            table_name="user-conversations",
+            partition_key=dynamodb.Attribute(
+                name="conversation_id", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="request_id", type=dynamodb.AttributeType.STRING
+            ),
+            removal_policy=RemovalPolicy.RETAIN,
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
+        )
+
+        new_conversationTable.add_global_secondary_index(
+            index_name="userid-index",
+            partition_key=dynamodb.Attribute(
+                name="user_id", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="engine", type=dynamodb.AttributeType.STRING
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
+        new_conversationTable.add_local_secondary_index(
+            index_name="timestamp-index",
+            sort_key=dynamodb.Attribute(
+                name="timestamp", type=dynamodb.AttributeType.NUMBER
+            ),
+            projection_type=dynamodb.ProjectionType.ALL,
+        )
+
         contextTable = dynamodb.Table(
             self,
             "user-context-table",
             table_name="user-context",
             partition_key=dynamodb.Attribute(
-                name="user_chat", type=dynamodb.AttributeType.STRING
+                name="user_id", type=dynamodb.AttributeType.STRING
             ),
             sort_key=dynamodb.Attribute(
                 name="engine", type=dynamodb.AttributeType.STRING
