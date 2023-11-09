@@ -54,6 +54,7 @@ def __send_text(chat_id: str, message_id: str, text: str) -> None:
         )
     except BadRequest as br:
         logging.error(br)
+        logging.info(text)
         # send without reply
         asyncio.get_event_loop().run_until_complete(
             bot.send_message(

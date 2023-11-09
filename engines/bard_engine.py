@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Any, Optional
+from typing import Optional
 
 import boto3
 import requests
@@ -13,6 +13,7 @@ from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+
 engine_type = "bard"
 headers = {
     "Host": "bard.google.com",
@@ -64,30 +65,21 @@ def ask(chatbot: Bard, request_id: str, text: str, userConfig: dict) -> str:
                         "domain": ".google.com",
                     }
                 )
-            save_cookies(cookies)
+            save_to_s3(bucket_name, "bard-cookies.json", cookies)
+            logging.info(f"Saved {len(cookies)} cookies to s3")
         except Exception as e:
             logging.error("Error saving session cookies", exc_info=e)
 
     item = response["content"]
-    answer = as_markdown(item)
+    answer = __as_markdown(item)
     return answer
-
-
-def read_cookies() -> Any:
-    cookies = read_json_from_s3(bucket_name, "bard-cookies.json")
-    logging.info(f"Read {len(cookies)} cookies from s3")
-    return cookies
-
-
-def save_cookies(cookies: Any) -> None:
-    save_to_s3(bucket_name, "bard-cookies.json", cookies)
-    logging.info(f"Saved {len(cookies)} cookies to s3")
 
 
 def create(conversation_id: Optional[str]) -> Bard:
     socks_url = read_ssm_param(param_name="SOCKS5_URL")
     proxies = {"https": socks_url, "http": socks_url}
-    auth_cookies = read_cookies()
+    auth_cookies = read_json_from_s3(bucket_name, "bard-cookies.json")
+    logging.info(f"Read {len(auth_cookies)} cookies from s3")
     psid = [x.get("value") for x in auth_cookies if x.get("name") == "__Secure-1PSID"][
         0
     ]
@@ -113,11 +105,19 @@ def create(conversation_id: Optional[str]) -> Bard:
     )
 
 
-def as_markdown(input: str) -> str:
+def __as_markdown(input: str) -> str:
     input = re.sub(r"(?<!\*)\*(?!\*)", "\\\\*", input)
     input = re.sub(r"\*{2,}", "*", input)
     esc_pattern = re.compile(f"([{re.escape(r'._-+#|{}!=()<>[]')}])")
     return re.sub(esc_pattern, r"\\\1", input)
+
+
+def process_command(input: str) -> None:
+    command = input.removeprefix(prefix="/").lower()
+    if "reset" in command:
+        # do reset
+        return
+    logging.error(f"Unknown command {command}")
 
 
 def sqs_handler(event, context):
@@ -130,6 +130,7 @@ def sqs_handler(event, context):
         user_id = payload["user_id"]
         user_chat_id = f"{user_id}_{payload['chat_id']}"
         conversation_id = user_context.read(user_chat_id, engine_type) or None
+        logging.info(f"Read conversation_id {conversation_id}")
         instance = create(conversation_id=conversation_id)
         response = ask(
             chatbot=instance,
