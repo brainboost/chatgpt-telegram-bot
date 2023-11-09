@@ -105,10 +105,12 @@ class EnginesStack(Stack):
         self.__create_engine(
             engine_name="Bing",
             sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["text"]),
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bing"]),
             },
-            handler=f"{ASSET_PATH}.bing_gpt.sqs_handler",
+            handler=f"{ASSET_PATH}.bing.sqs_handler",
         )
 
         # Bard
@@ -116,7 +118,9 @@ class EnginesStack(Stack):
         self.__create_engine(
             engine_name="Bard",
             sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["text"]),
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bard"]),
             },
             handler=f"{ASSET_PATH}.bard_engine.sqs_handler",
@@ -127,7 +131,9 @@ class EnginesStack(Stack):
         self.__create_engine(
             engine_name="ChatGpt",
             sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["text"]),
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(
                     allowlist=["chatgpt"]
                 ),
@@ -162,7 +168,9 @@ class EnginesStack(Stack):
         self.__create_engine(
             engine_name="LLama",
             sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["text"]),
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(
                     allowlist=["llama"]
                 ),
@@ -271,7 +279,9 @@ class EnginesStack(Stack):
         self.__create_engine(
             engine_name="Claude",
             sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["text"]),
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(
                     allowlist=["claude"]
                 ),
