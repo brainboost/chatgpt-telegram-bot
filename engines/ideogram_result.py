@@ -9,11 +9,12 @@ from .common_utils import (
     encode_message,
     read_ssm_param,
 )
-from .conversation_history import ConversationHistory
+from .user_context import UserContext
 
-logging.basicConfig()
+logging.basicpayload()
 logging.getLogger().setLevel("INFO")
 
+engine_type = "ideogram"
 threshold_img_quality = 1024
 browser_version = "chrome110"
 retrieve_metadata_url = "https://ideogram.ai/api/images/retrieve_metadata_request_id/"
@@ -21,29 +22,28 @@ get_images_url = "https://ideogram.ai/api/images/direct/"
 
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
-history = ConversationHistory()
 
 
-def retrieve_images(config: any) -> Optional[str]:
-    logging.info(config)
-    request_id = config["request_id"]
-    if not request_id:
-        raise Exception("Cannot get request_id")
+def retrieve_images(payload: dict) -> Optional[str]:
+    logging.info(payload)
+    result_id = payload["result_id"]
+    if not result_id:
+        raise Exception("Cannot get result_id")
 
     response = requests.get(
-        url=retrieve_metadata_url + request_id,
-        headers=config["headers"],
+        url=retrieve_metadata_url + result_id,
+        headers=payload["headers"],
         impersonate=browser_version,
     )
     if not response.ok:
         logging.info(response)
-        raise Exception(f"Cannot retrieve images for request_id {request_id}")
+        raise Exception(f"Cannot retrieve images for result_id {result_id}")
 
     resp_obj = response.json()
     if "resolution" not in resp_obj or resp_obj["resolution"] < threshold_img_quality:
-        logging.info(f"Republishing for {request_id} to achieve delay ...")
-        queue_url = config["queue_url"]
-        sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps(config))
+        logging.info(f"Republishing results {result_id} to achieve delay...")
+        queue_url = payload["queue_url"]
+        sqs.send_message(QueueUrl=queue_url, MessageBody=json.dumps(payload))
         return None
 
     list = []
@@ -57,26 +57,32 @@ def retrieve_images(config: any) -> Optional[str]:
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        message = retrieve_images(config=payload)
+        message = retrieve_images(payload=payload)
         if not message:
             return
 
         payload["response"] = encode_message(message)
-        payload["engine"] = "Ideogram"
+        payload["engine"] = engine_type
         user_id = payload["user_id"]
-        conversation_id = f"{payload['chat_id']}_{user_id}_{payload['update_id']}"
+        result_id = payload["result_id"]
+        user_context = UserContext(
+            user_id=f"{user_id}_{payload['chat_id']}",
+            request_id=result_id,
+            engine_id=engine_type,
+            username=payload["username"],
+        )
         try:
-            history.write(
-                conversation_id=conversation_id,
-                request_id=f'img_{payload["update_id"]}',
-                user_id=user_id,
+            user_context.save_conversation(
                 conversation=payload,
             )
         except Exception as e:
             logging.error(
-                f"conversation_id: {conversation_id}, error: {e}, item: {payload}"
+                f"Saving conversation error. User_id: {user_id}_{payload['chat_id']}, item: {payload}",
+                exc_info=e,
             )
         # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

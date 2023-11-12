@@ -123,7 +123,7 @@ class EnginesStack(Stack):
                 ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bard"]),
             },
-            handler=f"{ASSET_PATH}.bard_engine.sqs_handler",
+            handler=f"{ASSET_PATH}.bard.sqs_handler",
         )
 
         # ChatGPT
@@ -230,7 +230,7 @@ class EnginesStack(Stack):
                     allowlist=["ideogram"]
                 ),
             },
-            handler=f"{ASSET_PATH}.ideogram.sqs_handler",
+            handler=f"{ASSET_PATH}.ideogram_img.sqs_handler",
         )
 
         # Add ideogram result queue with delayed message to retrieve results when ready

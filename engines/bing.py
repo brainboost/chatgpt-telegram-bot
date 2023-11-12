@@ -24,6 +24,7 @@ ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
 
 def process_command(input: str, context: UserContext) -> None:
     command = input.removeprefix(prefix="/").lower()
+    logging.info(f"Processing command {command} for {context.user_id}")
     if "reset" in command:
         context.reset_conversation()
         logging.info(f"Conversation hass been reset for {context.user_id}")
@@ -90,6 +91,7 @@ def __replace_references(text: str) -> str:
 
 
 def create() -> Chatbot:
+    logging.info("Create chatbot instance")
     bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
     # socks_url = read_ssm_param(param_name="SOCKS5_URL")
     # os.environ["all_proxy"] = socks_url
@@ -111,12 +113,15 @@ def sqs_handler(event, context):
         payload = json.loads(record["body"])
         user_id = payload["user_id"]
         user_context = UserContext(
-            user_id=user_id,
-            chat_id=payload["chat_id"],
+            user_id=f"{user_id}_{payload['chat_id']}",
             request_id=request_id,
             engine_id=engine_type,
             username=payload["username"],
         )
+        if "command" in payload["type"]:
+            process_command(input=payload["text"], context=user_context)
+            return
+
         instance = create()
         style = payload["config"].get("style", "creative")
         response = ask(
