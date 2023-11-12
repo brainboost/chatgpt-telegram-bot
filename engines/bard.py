@@ -8,7 +8,6 @@ import requests
 from bardapi import Bard
 
 from .common_utils import encode_message, read_json_from_s3, read_ssm_param, save_to_s3
-from .conversation_history import ConversationHistory
 from .user_context import UserContext
 
 logging.basicConfig()
@@ -33,11 +32,23 @@ cookie_names = [
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
-user_context = UserContext()
-history = ConversationHistory()
 
 
-def ask(chatbot: Bard, request_id: str, text: str, userConfig: dict) -> str:
+def process_command(input: str, context: UserContext) -> None:
+    command = input.removeprefix(prefix="/").lower()
+    logging.info(f"Processing command {command} for {context.user_id}")
+    if "reset" in command:
+        context.reset_conversation()
+        logging.info(f"Conversation hass been reset for {context.user_id}")
+        return
+    logging.error(f"Unknown command {command}")
+
+
+def ask(
+    text: str,
+    chatbot: Bard,
+    context: UserContext,
+) -> str:
     if "/ping" in text:
         return "pong"
 
@@ -76,6 +87,7 @@ def ask(chatbot: Bard, request_id: str, text: str, userConfig: dict) -> str:
 
 
 def create(conversation_id: Optional[str]) -> Bard:
+    logging.info("Create chatbot instance")
     socks_url = read_ssm_param(param_name="SOCKS5_URL")
     proxies = {"https": socks_url, "http": socks_url}
     auth_cookies = read_json_from_s3(bucket_name, "bard-cookies.json")
@@ -94,7 +106,7 @@ def create(conversation_id: Optional[str]) -> Bard:
                 path=auth_cookies[i]["path"],
             )
     logging.info(
-        f"psid {psid}, proxy: {socks_url}, cookies: {len(session.cookies.items())}"
+        f"1PSID {psid}, proxy: {socks_url}, cookies: {len(session.cookies.items())}"
     )
     return Bard(
         token=psid,
@@ -112,53 +124,33 @@ def __as_markdown(input: str) -> str:
     return re.sub(esc_pattern, r"\\\1", input)
 
 
-def process_command(input: str) -> None:
-    command = input.removeprefix(prefix="/").lower()
-    if "reset" in command:
-        # do reset
-        return
-    logging.error(f"Unknown command {command}")
-
-
 def sqs_handler(event, context):
     """AWS SQS event handler"""
     request_id = context.aws_request_id
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        logging.info(payload)
+        # logging.info(payload)
         user_id = payload["user_id"]
-        user_chat_id = f"{user_id}_{payload['chat_id']}"
-        conversation_id = user_context.read(user_chat_id, engine_type) or None
-        logging.info(f"Read conversation_id {conversation_id}")
-        instance = create(conversation_id=conversation_id)
-        response = ask(
-            chatbot=instance,
+        user_context = UserContext(
+            user_id=f"{user_id}_{payload['chat_id']}",
             request_id=request_id,
+            engine_id=engine_type,
+            username=payload["username"],
+        )
+        if "command" in payload["type"]:
+            process_command(input=payload["text"], context=user_context)
+            return
+
+        instance = create(conversation_id=user_context.conversation_id)
+        response = ask(
             text=payload["text"],
-            userConfig=payload["config"],
+            chatbot=instance,
+            context=user_context,
         )
-        conversation_id = instance.conversation_id
-        logging.info(
-            f"Saving user_context for {user_chat_id}, engine {engine_type}, conversation_id: {conversation_id}"
+        user_context.save_conversation(
+            conversation={"request": payload["text"], "response": response},
         )
-        user_context.write(
-            user_chat_id=user_chat_id,
-            engine=engine_type,
-            conversation_id=conversation_id,
-        )
-        try:
-            history.write(
-                conversation_id=conversation_id,
-                request_id=request_id,
-                user_id=user_id,
-                conversation=response,
-            )
-        except Exception as e:
-            logging.error(
-                f"History write error, conversation_id: {conversation_id}, request_id: {request_id}",
-                exc_info=e,
-            )
         payload["response"] = encode_message(response)
         payload["engine"] = engine_type
         logging.info(payload)

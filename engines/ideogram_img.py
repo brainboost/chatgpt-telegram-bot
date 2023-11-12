@@ -7,7 +7,6 @@ from curl_cffi import requests
 from .common_utils import (
     read_ssm_param,
 )
-from .conversation_history import ConversationHistory
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -24,7 +23,6 @@ ideogram_result_queue = results_queue.replace(
     results_queue.split("/")[-1], "Ideogram-Result-Queue"
 )
 sqs = boto3.session.Session().client("sqs")
-history = ConversationHistory()
 token = read_ssm_param(param_name="IDEOGRAM_TOKEN")
 user_id = read_ssm_param(param_name="IDEOGRAM_USER")
 channel_id = read_ssm_param(param_name="IDEOGRAM_CHANNEL")
@@ -43,7 +41,7 @@ headers = {
 }
 
 
-def request_images_generation(prompt: str) -> str:
+def request_images(prompt: str) -> str:
     payload = {
         "aspect_ratio": "square",
         "channel_id": channel_id,
@@ -80,13 +78,16 @@ def send_retrieving_event(event: object) -> None:
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
         prompt = payload["text"]
         if prompt is None or not prompt.strip():
             return
-        request_id = request_images_generation(prompt=prompt)
-        payload["request_id"] = request_id
+
+        result_id = request_images(prompt=prompt)
+        payload["result_id"] = result_id
         payload["headers"] = headers
         payload["queue_url"] = ideogram_result_queue
         send_retrieving_event(payload)

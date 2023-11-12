@@ -10,16 +10,17 @@ from .common_utils import (
     read_json_from_s3,
     read_ssm_param,
 )
-from .conversation_history import ConversationHistory
+from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
+engine_type = "dall-e"
+
 
 def create() -> ImageGen:
-    s3_path = read_ssm_param(param_name="COOKIES_FILE")
-    bucket_name, file_name = s3_path.replace("s3://", "").split("/", 1)
-    auth_cookies = read_json_from_s3(bucket_name, file_name)
+    bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
+    auth_cookies = read_json_from_s3(bucket_name, "bing-cookies.json")
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
     srch = [x.get("value") for x in auth_cookies if x.get("name") == "SRCHHPGUSR"][0]
     return ImageGen(
@@ -30,11 +31,12 @@ def create() -> ImageGen:
 imageGen = create()
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
-history = ConversationHistory()
 
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
         prompt = payload["text"]
@@ -52,22 +54,25 @@ def sqs_handler(event, context):
                 logging.info(payload)
         payload["response"] = list
         user_id = payload["user_id"]
-        conversation_id = f"{payload['chat_id']}_{user_id}_{payload['update_id']}"
+        user_context = UserContext(
+            user_id=f"{user_id}_{payload['chat_id']}",
+            request_id=request_id,
+            engine_id=engine_type,
+            username=payload["username"],
+        )
         try:
-            history.write(
-                conversation_id=conversation_id,
-                request_id=f'img_{payload["update_id"]}',
-                user_id=user_id,
+            user_context.save_conversation(
                 conversation=payload,
             )
         except Exception as e:
             logging.error(
-                f"conversation_id: {conversation_id}, error: {e}, item: {payload}"
+                f"Saving conversation error. User_id: {user_id}_{payload['chat_id']}, item: {payload}",
+                exc_info=e,
             )
 
         logging.info(list)
         message = "\n".join(list)
         payload["response"] = encode_message(message)
-        payload["engine"] = "Dall-E"
+        payload["engine"] = engine_type
         # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

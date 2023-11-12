@@ -232,7 +232,7 @@ class ChatBotStack(Stack):
                 cmd=[f"{LAMBDA_ASSET_PATH}.webhook.lambda_handler"],
             ),
             role=lambda_role,
-            execute_on_handler_change=False,
+            execute_on_handler_change=True,
         )
 
         # Alarms

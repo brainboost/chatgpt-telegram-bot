@@ -18,17 +18,6 @@ class DatabaseStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
-        dynamodb.Table(
-            self,
-            "configurations-table",
-            table_name="configurations",
-            partition_key=dynamodb.Attribute(
-                name="user_id", type=dynamodb.AttributeType.STRING
-            ),
-            removal_policy=RemovalPolicy.RETAIN,
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-        )
-
         conversationTable = dynamodb.Table(
             self,
             "conversations-table",
@@ -112,4 +101,18 @@ class DatabaseStack(Stack):
                 name="conversation_id", type=dynamodb.AttributeType.STRING
             ),
             projection_type=dynamodb.ProjectionType.ALL,
+        )
+        dynamodb.Table(
+            self,
+            "request-jobs-table",
+            table_name="request-jobs",
+            partition_key=dynamodb.Attribute(
+                name="request_id", type=dynamodb.AttributeType.STRING
+            ),
+            sort_key=dynamodb.Attribute(
+                name="engine", type=dynamodb.AttributeType.STRING
+            ),
+            removal_policy=RemovalPolicy.DESTROY,
+            time_to_live_attribute="exp",
+            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )

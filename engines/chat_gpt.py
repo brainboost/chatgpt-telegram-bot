@@ -1,81 +1,102 @@
 import json
 import logging
-import re
 from collections import deque
+from os import environ
 
 import boto3
 from revChatGPT.V1 import Chatbot
 
-# from revChatGPT.V3 import Chatbot
 from .common_utils import encode_message, escape_markdown_v2, read_ssm_param
-from .conversation_history import ConversationHistory
-from .engine_interface import EngineInterface
+from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
-
-class ChatGpt(EngineInterface):
-    def __init__(self, chatbot: Chatbot) -> None:
-        self.remove_links_pattern = re.compile(r"\[\^\d+\^\]\s?")
-        self.ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-        self.conversation_id = None
-        self.parent_id = None
-        self.chatbot = chatbot
-        self.history = ConversationHistory()
-
-    def reset_chat(self) -> None:
-        self.conversation_id = None
-        self.parent_id = None
-        self.chatbot.reset()
-
-    def close(self):
-        self.chatbot.clear_conversations()
-
-    def ask(self, text: str, userConfig: dict) -> str:
-        if "/ping" in text:
-            return "pong"
-
-        response = deque(
-            self.chatbot.ask(
-                prompt=text,
-                conversation_id=self.conversation_id,
-                parent_id=self.parent_id,
-                auto_continue=(self.conversation_id is not None),
-            ),
-            maxlen=1,
-        )[-1]
-        message = response["message"]
-        self.parent_id = response["parent_id"]
-        self.conversation_id = response["conversation_id"]
-        # logging.info(response["model"])
-        return escape_markdown_v2(message)
-
-    @property
-    def engine_type(self):
-        return "chatgpt"
-
-    @classmethod
-    def create(cls) -> EngineInterface:
-        gpt_token = read_ssm_param(param_name="GPT_TOKEN")
-        # api_key = read_ssm_param("OPENAI_API_KEY")
-        chatbot = Chatbot(config={"access_token": gpt_token})
-        # chatbot = Chatbot(api_key=api_key)
-        return ChatGpt(chatbot)
+engine_type = "chatgpt"
 
 
-instance = ChatGpt.create()
+def process_command(input: str, context: UserContext) -> None:
+    command = input.removeprefix(prefix="/").lower()
+    logging.info(f"Processing command {command} for {context.user_id}")
+    if "reset" in command:
+        context.reset_conversation()
+        logging.info(f"Conversation hass been reset for {context.user_id}")
+        return
+    logging.error(f"Unknown command {command}")
+
+
+def ask(
+    text: str,
+    chatbot: Chatbot,
+    context: UserContext,
+) -> str:
+    if "/ping" in text:
+        return "pong"
+
+    response = deque(
+        chatbot.ask(
+            prompt=text,
+            conversation_id=context.conversation_id,
+            parent_id=context.parent_id,
+            auto_continue=(context.conversation_id is not None),
+        ),
+        maxlen=1,
+    )[-1]
+    message = response["message"]
+    context.conversation_id = response["conversation_id"]
+    context.parent_id = response["parent_id"]
+    logging.info(
+        f"Saving context: conversation_id {response['conversation_id']}, parent_id {response['parent_id']}"
+    )
+    return escape_markdown_v2(message)
+
+
+def create(context: UserContext) -> Chatbot:
+    gpt_token = read_ssm_param(param_name="GPT_TOKEN")
+    gpt_proxy = read_ssm_param(param_name="GPT_PROXY")
+    http_proxy = read_ssm_param(param_name="SOCKS5_URL")
+    environ["CHATGPT_BASE_URL"] = gpt_proxy
+    chatbot = Chatbot(
+        config={
+            "access_token": gpt_token,
+            "proxy": http_proxy,
+            # "model": "text-davinci-002-render-sha",
+        },
+        conversation_id=context.conversation_id,
+        parent_id=context.parent_id,
+        base_url=gpt_proxy,
+    )
+    return chatbot
+
+
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        response = instance.ask(payload["text"], payload["config"])
+        user_id = payload["user_id"]
+        user_context = UserContext(
+            user_id=f"{user_id}_{payload['chat_id']}",
+            request_id=request_id,
+            engine_id=engine_type,
+            username=payload["username"],
+        )
+        if "command" in payload["type"]:
+            process_command(input=payload["text"], context=user_context)
+            return
+
+        instance = create(user_context)
+        response = ask(payload["text"], instance, user_context)
+        user_context.save_conversation(
+            conversation={"request": payload["text"], "response": response},
+        )
         payload["response"] = response
         payload["response"] = encode_message(response)
-        payload["engine"] = instance.engine_type
+        payload["engine"] = engine_type
         # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
