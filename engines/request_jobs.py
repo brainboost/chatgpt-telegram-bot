@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 from typing import Any, Optional
 
@@ -23,7 +24,7 @@ class RequestJobs:
                 Key={"request_id": self.request_id, "engine": self.engine_id}
             )
             if "Item" in resp and resp["Item"]:
-                return resp["Item"]
+                return json.loads(resp["Item"]["context"])
         except Exception as e:
             logging.error(
                 f"Cannot read from 'request-jobs' table with PK '{self.request_id}' and SK '{self.engine_id}'",
@@ -31,7 +32,7 @@ class RequestJobs:
             )
         return None
 
-    def save(self, context: Optional[Any]) -> None:
+    def save(self, context: Optional[Any] = None) -> None:
         logging.info(
             f"Save request context for {self.request_id}, engine {self.engine_id}"
         )
@@ -39,9 +40,9 @@ class RequestJobs:
         exp_time = tme + datetime.timedelta(days=10)
         self.requests_table.put_item(
             Item={
-                "request_id": self.user_id,
+                "request_id": self.request_id,
                 "engine": self.engine_id,
-                "context": context or None,
+                "context": json.dumps(context or {}),
                 "timestamp": int(tme.timestamp()),
                 "exp": int(exp_time.timestamp()),
             }

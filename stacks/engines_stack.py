@@ -179,7 +179,15 @@ class EnginesStack(Stack):
         )
 
         # Add monsterapi callback handler
-
+        dlq = aws_sqs.Queue(
+            self,
+            "MonsterApi-Callback-DLQ",
+            queue_name="MonsterApi-Callback-DLQ",
+            removal_policy=RemovalPolicy.DESTROY,
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            retention_period=Duration.days(3),
+            enforce_ssl=True,
+        )
         api_callback = DockerImageFunction(
             self,
             "MonsterApiCallbackHandler",
@@ -193,7 +201,10 @@ class EnginesStack(Stack):
             timeout=Duration.minutes(3),
             memory_size=256,
             role=self.lambda_role,
+            dead_letter_queue_enabled=True,
+            dead_letter_queue=dlq,
         )
+        dlq.grant_send_messages(api_callback)
         error_alarm = aws_cloudwatch.Alarm(
             self,
             "MonsterApiCallbackHandlerErrors",
@@ -324,7 +335,7 @@ class EnginesStack(Stack):
                 exclude=["cdk.out"],
                 cmd=[handler],
             ),
-            timeout=Duration.minutes(3),
+            timeout=Duration.minutes(4),
             memory_size=256,
             role=self.lambda_role,
         )

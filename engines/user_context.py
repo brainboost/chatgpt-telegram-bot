@@ -1,4 +1,5 @@
 import datetime
+import json
 import logging
 from typing import Any, Optional
 
@@ -39,14 +40,22 @@ class UserContext:
         )
         self.conversation_id = None
 
-    def read_context(self) -> Optional[dict]:
+    def read_context(self) -> Optional[Any]:
         logging.info(f"Read user context {self.user_id}")
         try:
             resp = self.context_table.get_item(
                 Key={"user_id": self.user_id, "engine": self.engine_id}
             )
             if "Item" in resp and resp["Item"]:
-                return resp["Item"]
+                item = resp["Item"]
+                return {
+                    "user_id": item["user_id"],
+                    "engine": item["engine"],
+                    "conversation_id": item["conversation_id"],
+                    "parent_id": item["parent_id"],
+                    "optional": json.loads(item["optional"] or {}),
+                    "exp": int(item["exp"]),
+                }
         except Exception as e:
             logging.error(
                 f"Cannot read from 'user-context' table with PK '{self.user_id}' and SK '{self.engine_id}'",
@@ -64,7 +73,7 @@ class UserContext:
                 "engine": self.engine_id,
                 "conversation_id": self.conversation_id,
                 "parent_id": self.parent_id,
-                "optional": optional_context or {},
+                "optional": json.dumps(optional_context or {}),
                 "exp": int(exp_time.timestamp()),
             }
         )
@@ -85,7 +94,7 @@ class UserContext:
                         "user_id": self.user_id,
                         "engine": self.engine_id,
                         "timestamp": int(tme.timestamp()),
-                        "conversation": conversation or {},
+                        "conversation": json.dumps(conversation or {}),
                     }
                 )
         except Exception as e:
@@ -103,7 +112,7 @@ class UserContext:
                 }
             )
             if "Item" in resp:
-                return resp["Item"]["conversation"]
+                return json.loads(resp["Item"]["conversation"])
             return None
         except Exception as e:
             logging.error(
