@@ -18,36 +18,6 @@ class DatabaseStack(Stack):
             billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
         )
 
-        conversationTable = dynamodb.Table(
-            self,
-            "conversations-table",
-            table_name="conversations",
-            partition_key=dynamodb.Attribute(
-                name="conversation_id", type=dynamodb.AttributeType.STRING
-            ),
-            sort_key=dynamodb.Attribute(
-                name="request_id", type=dynamodb.AttributeType.STRING
-            ),
-            removal_policy=RemovalPolicy.RETAIN,
-            billing_mode=dynamodb.BillingMode.PAY_PER_REQUEST,
-        )
-
-        conversationTable.add_global_secondary_index(
-            index_name="user-id-index",
-            partition_key=dynamodb.Attribute(
-                name="user_id", type=dynamodb.AttributeType.NUMBER
-            ),
-            projection_type=dynamodb.ProjectionType.ALL,
-        )
-
-        conversationTable.add_local_secondary_index(
-            index_name="updated-index",
-            sort_key=dynamodb.Attribute(
-                name="timestamp", type=dynamodb.AttributeType.NUMBER
-            ),
-            projection_type=dynamodb.ProjectionType.ALL,
-        )
-
         new_conversationTable = dynamodb.Table(
             self,
             "user-conversations-table",

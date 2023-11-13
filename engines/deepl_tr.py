@@ -24,6 +24,8 @@ def __parse_languages(lang: str) -> list:
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
         # logging.info(payload)

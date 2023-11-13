@@ -55,6 +55,7 @@ def ask(text: str, context: UserContext, attachment=None):
 
     conversation_uuid = context.conversation_id or __generate_uuid()
     __set_conversation(conversation_id=conversation_uuid)
+    context.conversation_id = conversation_uuid
     __set_title(prompt=text, conversation_id=conversation_uuid)
     attachments = []
     # if attachment:
@@ -121,6 +122,7 @@ def __generate_uuid() -> str:
     random_uuid = uuid.uuid4()
     random_uuid_str = str(random_uuid)
     formatted_uuid = f"{random_uuid_str[0:8]}-{random_uuid_str[9:13]}-{random_uuid_str[14:18]}-{random_uuid_str[19:23]}-{random_uuid_str[24:]}"  # noqa: E501
+    logging.info(f"Generated new uuid '{formatted_uuid}'")
     return formatted_uuid
 
 
@@ -134,7 +136,7 @@ def __get_organization():
         logging.info(headers)
     res = json.loads(response.text)
     uuid = res[0]["uuid"]
-    logging.info(f"Got organisationID {uuid}")
+    logging.info(f"Got organisationID '{uuid}'")
     return uuid
 
 
@@ -155,6 +157,7 @@ def __set_title(prompt: str, conversation_id: str) -> str:
         logging.error(response.text)
         raise Exception(f"Error response {response.text}")
     title = response.json()["title"]
+    logging.info(f"Title set to '{title}")
     return title
 
 

@@ -156,6 +156,8 @@ async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
+    username = update.effective_user.username
+    config["username"] = username
     engine_types = (
         update.effective_message.text.strip("/")
         .split("@")[0]
@@ -167,17 +169,17 @@ async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     logging.info(f"engines: {engine_types}")
     if not engine_types:
         engine_types = config["engines"]
-        await update.effective_message.reply_text(text=f"Bot engine(s): {engine_types}")
+        await update.effective_message.reply_text(text=f"Bot engines: {engine_types}")
         return
 
     if "," in engine_types:
         config["engines"] = engine_types.split(",")
     else:
         config["engines"] = [engine_types]
-    logging.info(f"user: {user_id} set engine to: {engine_types}")
+    logging.info(f"User {username} {user_id} set engines to '{engine_types}'")
     user_config.write(user_id, config)
     await update.effective_message.reply_text(
-        text=f"Bot engine has been set to {engine_types}"
+        text=f"Bot engines has been set to {engine_types}"
     )
 
 
