@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+
 jobs:
   aws_cdk:
     runs-on: ubuntu-latest
@@ -17,13 +18,10 @@ jobs:
         uses: actions/setup-node@master
         with:
           node-version: ${{ env.NODE_VERSION }}
-      # - name: Install poetry
-      #   run: pipx install poetry
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          # cache: "poetry"
       - name: Install CDK
         run: npm install -g aws-cdk 
       - name: Install dependencies
@@ -34,7 +32,5 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
-      # - name: Synth stack
-      #   run: cdk synth
       - name: Deploy stack
         run: cdk deploy --profile=${{ secrets.AWS_PROFILE }} --all --require-approval never
