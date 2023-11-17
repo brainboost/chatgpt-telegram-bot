@@ -1,0 +1,23 @@
+on: [push, workflow_dispatch]
+jobs:
+  aws_cdk:
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@master
+      - uses: actions/setup-node@master
+        with:
+          node-version: "20"
+      - name: Configure aws credentials
+        uses: aws-actions/configure-aws-credentials@master
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Install dependencies
+        run: yarn
+      - name: Synth stack
+        run: yarn cdk synth
+      - name: Deploy stack
+        run: yarn cdk deploy --profile=${{ secrets.AWS_PROFILE }} --all --require-approval never
