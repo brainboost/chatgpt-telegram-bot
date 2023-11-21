@@ -71,7 +71,7 @@ def ask(text: str, context: UserContext, attachment=None):
             "completion": {
                 "prompt": f"{text}",
                 "timezone": "Europe/Warsaw",
-                "model": "claude-2",
+                "model": "claude-2.1",
             },
             "organization_uuid": organization_id,
             "conversation_uuid": conversation_uuid,
@@ -84,10 +84,11 @@ def ask(text: str, context: UserContext, attachment=None):
         headers=headers,
         data=payload,
         impersonate=browser_version,
-        timeout=500,
+        timeout=600,
     )
     if not response.ok:
-        logging.error(response)
+        logging.error(f"POST request returned {response.status_code} {response.reason}")
+        logging.info(response.content.decode("utf-8"))
         logging.info(payload)
 
     decoded_data = response.content.decode("utf-8")

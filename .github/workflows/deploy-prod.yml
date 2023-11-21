@@ -22,10 +22,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE }}
           aws-region: ${{ secrets.AWS_REGION }}
           role-skip-session-tagging: true
-          output-credentials: true
           role-session-name: ${{ env.SESSION_NAME }}
         env:
-          SESSION_NAME: "github-${{github.sha}}-prod"
+          SESSION_NAME: "github-${{github.sha}}-${{ env.STAGE }}"
       - name: Setup Node
         uses: actions/setup-node@master
         with:
