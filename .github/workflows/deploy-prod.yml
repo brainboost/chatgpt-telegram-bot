@@ -1,19 +1,31 @@
 env:
-  NODE_VERSION: "20"
+  NODE_VERSION: "18"
   PYTHON_VERSION: "3.11"
   STAGE: "prod"
 on:
   workflow_dispatch:
   push:
     branches: [main]
-
 jobs:
   aws_cdk:
     runs-on: ubuntu-latest
     environment: prod
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - name: Checkout repo
         uses: actions/checkout@master
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@master
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-skip-session-tagging: true
+          output-credentials: true
+          role-session-name: ${{ env.SESSION_NAME }}
+        env:
+          SESSION_NAME: "github-${{github.sha}}-prod"
       - name: Setup Node
         uses: actions/setup-node@master
         with:
@@ -26,11 +38,5 @@ jobs:
         run: npm install -g aws-cdk 
       - name: Install dependencies
         run: pip install -r requirements.txt -U 
-      - name: Configure aws credentials
-        uses: aws-actions/configure-aws-credentials@master
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
       - name: Deploy stack
-        run: cdk deploy --profile=${{ secrets.AWS_PROFILE }} --all --require-approval never
+        run: cdk deploy --all --require-approval never
