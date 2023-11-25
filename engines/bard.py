@@ -82,6 +82,7 @@ def ask(
             logging.error("Error saving session cookies", exc_info=e)
 
     item = response["content"]
+    context.conversation_id = chatbot.conversation_id
     answer = __as_markdown(item)
     return answer
 

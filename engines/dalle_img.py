@@ -54,6 +54,8 @@ def sqs_handler(event, context):
                 logging.info(payload)
         payload["response"] = list
         user_id = payload["user_id"]
+        logging.info(imageGen.session.__dict__)
+        logging.info(json.dumps(vars(imageGen.session)))
         user_context = UserContext(
             user_id=f"{user_id}_{payload['chat_id']}",
             request_id=request_id,
