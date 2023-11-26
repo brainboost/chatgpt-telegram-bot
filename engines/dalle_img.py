@@ -52,16 +52,17 @@ def sqs_handler(event, context):
             else:
                 logging.error(e)
                 logging.info(payload)
+                logging.info(imageGen.session.__dict__)
+
         payload["response"] = list
         user_id = payload["user_id"]
-        logging.info(imageGen.session.__dict__)
-        logging.info(json.dumps(vars(imageGen.session)))
         user_context = UserContext(
             user_id=f"{user_id}_{payload['chat_id']}",
             request_id=request_id,
             engine_id=engine_type,
             username=payload["username"],
         )
+        user_context.conversation_id = request_id
         try:
             user_context.save_conversation(
                 conversation=payload,
