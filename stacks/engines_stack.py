@@ -204,6 +204,7 @@ class EnginesStack(Stack):
             role=self.lambda_role,
             dead_letter_queue_enabled=True,
             dead_letter_queue=dlq,
+            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
         dlq.grant_send_messages(api_callback)
         error_alarm = aws_cloudwatch.Alarm(
@@ -278,8 +279,7 @@ class EnginesStack(Stack):
                 exclude=["cdk.out"],
                 cmd=[f"{ASSET_PATH}.ideogram_result.sqs_handler"],
             ),
-            # timeout=Duration.minutes(1),
-            # memory_size=256,
+            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
             role=self.lambda_role,
         )
         resultHandler.add_event_source(
