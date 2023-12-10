@@ -8,6 +8,7 @@ from aws_cdk import (
     aws_cloudwatch_actions,
     aws_iam,
     aws_lambda_event_sources,
+    aws_logs,
     aws_sns,
     aws_sns_subscriptions,
     aws_sqs,
@@ -335,8 +336,9 @@ class EnginesStack(Stack):
                 exclude=["cdk.out"],
                 cmd=[handler],
             ),
-            timeout=Duration.minutes(4),
+            timeout=Duration.minutes(5),
             memory_size=256,
+            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
             role=self.lambda_role,
         )
         lambda_fn.add_event_source(aws_lambda_event_sources.SqsEventSource(queue))

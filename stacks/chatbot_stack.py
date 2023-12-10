@@ -9,6 +9,7 @@ from aws_cdk import (
     aws_ec2,
     aws_iam,
     aws_lambda_event_sources,
+    aws_logs,
     aws_s3,
     aws_sns,
     aws_sqs,
@@ -129,6 +130,7 @@ class ChatBotStack(Stack):
             ),
             timeout=Duration.minutes(1),
             role=lambda_role,
+            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
 
         # result SQS queue
@@ -193,6 +195,7 @@ class ChatBotStack(Stack):
                 queue_name="BotHandler-DLQ",
                 retention_period=Duration.days(3),
             ),
+            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
 
         lambda_url = lambda_function.add_function_url(
@@ -233,6 +236,7 @@ class ChatBotStack(Stack):
             ),
             role=lambda_role,
             execute_on_handler_change=True,
+            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
 
         # Alarms

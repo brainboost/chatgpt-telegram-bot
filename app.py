@@ -13,7 +13,7 @@ env = cdk.Environment(
     account=os.environ.get("CDK_ACCOUNT", None),
     region=os.environ.get("CDK_REGION", None),
 )
-stage = os.environ.get("STAGE", "dev")
+stage = os.environ.get("STAGE", "prod")
 
 engStack = EnginesStack(
     scope=app,
