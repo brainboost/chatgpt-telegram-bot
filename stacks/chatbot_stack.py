@@ -6,7 +6,6 @@ from aws_cdk import (
     Stack,
     aws_cloudwatch,
     aws_cloudwatch_actions,
-    aws_ec2,
     aws_iam,
     aws_lambda_event_sources,
     aws_logs,
@@ -28,43 +27,6 @@ class ChatBotStack(Stack):
         self, scope: Construct, construct_id: str, stage: str, **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
-
-        vpc = aws_ec2.Vpc(
-            self,
-            "ChatBotVpc",
-            ip_addresses=aws_ec2.IpAddresses.cidr("10.0.0.0/16"),
-            max_azs=2,
-            subnet_configuration=[
-                aws_ec2.SubnetConfiguration(
-                    subnet_type=aws_ec2.SubnetType.PRIVATE_ISOLATED,
-                    name="private",
-                    cidr_mask=24,
-                ),
-                aws_ec2.SubnetConfiguration(
-                    subnet_type=aws_ec2.SubnetType.PUBLIC, name="public", cidr_mask=24
-                ),
-            ],
-        )
-
-        sg = aws_ec2.SecurityGroup(
-            self,
-            "ChatBotSecurityGroup",
-            vpc=vpc,
-            allow_all_outbound=True,
-            security_group_name="ChatBotSecurityGroup",
-        )
-
-        # Allow ingress from the specified TG IP ranges
-        sg.add_ingress_rule(
-            peer=aws_ec2.Peer.ipv4("149.154.160.0/20"),
-            connection=aws_ec2.Port.tcp(443),
-            description="Allow HTTPS from 149.154.160.0/20",
-        )
-        sg.add_ingress_rule(
-            peer=aws_ec2.Peer.ipv4("91.108.4.0/22"),
-            connection=aws_ec2.Port.tcp(443),
-            description="Allow HTTPS from 91.108.4.0/22",
-        )
 
         lambda_role = aws_iam.Role(
             self,
@@ -96,11 +58,6 @@ class ChatBotStack(Stack):
                     "sqs:GetQueueAttributes",
                     "sqs:StartMessageMoveTask",
                     "sqs:ListMessageMoveTasks",
-                    "ec2:CreateNetworkInterface",
-                    "ec2:DescribeNetworkInterfaces",
-                    "ec2:DeleteNetworkInterface",
-                    "ec2:AssignPrivateIpAddresses",
-                    "ec2:UnassignPrivateIpAddresses",
                 ],
                 resources=["*"],
             )

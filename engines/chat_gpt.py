@@ -98,5 +98,4 @@ def sqs_handler(event, context):
         payload["response"] = response
         payload["response"] = encode_message(response)
         payload["engine"] = engine_type
-        # logging.info(payload)
         sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))

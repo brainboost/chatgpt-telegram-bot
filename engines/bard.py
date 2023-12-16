@@ -131,7 +131,6 @@ def sqs_handler(event, context):
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        # logging.info(payload)
         user_id = payload["user_id"]
         user_context = UserContext(
             user_id=f"{user_id}_{payload['chat_id']}",

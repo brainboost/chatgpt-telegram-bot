@@ -35,24 +35,6 @@ from .utils import (
     split_long_message,
 )
 
-example_tg = """
-*bold \*text*
-_italic \*text_
-__underline__
-~strikethrough~
-||spoiler||
-*bold _italic bold ~italic bold strikethrough ||italic bold strikethrough spoiler||~ __underline italic bold___ bold*
-[inline URL](http://www.example.com/)
-[inline mention of a user](tg://user?id=123456789)
-`inline fixed-width code`
-```
-pre-formatted fixed-width code block
-```
-```python
-pre-formatted fixed-width code block written in the Python programming language
-```
-text with links. And dots. [\[2\]](https://github.com/huuhoa/adaptivecards)
-"""  # noqa: E501
 LANG, TEXT = range(2)
 
 logging.basicConfig()
@@ -60,26 +42,6 @@ logging.getLogger().setLevel("INFO")
 
 user_config = UserConfig()
 sns = boto3.client("sns")
-
-
-async def set_commands(application: Application) -> None:
-    await application.bot.set_my_commands(
-        [
-            BotCommand("/start", "Begin with bot, introduction"),
-            BotCommand("/help", "Commands usage. Syntax: /help COMMAND"),
-            BotCommand("/tr", "Translate text to other language(s)"),
-            BotCommand("/engines", "Gets or sets the AI model(s)"),
-            BotCommand("/bing", "Switch to Bing AI model"),
-            BotCommand("/bard", "Switch to Google Bard AI model"),
-            BotCommand("/chatgpt", "Switch to OpenAI ChatGPT model"),
-            BotCommand("/llama", "Switch to LLama 2 AI model"),
-            BotCommand("/claude", "Switch to Claude.ai model"),
-            BotCommand("/creative", "Set tone of responses to more creative (Default)"),
-            BotCommand("/balanced", "Set tone of responses to more balanced"),
-            BotCommand("/precise", "Set tone of responses to more precise"),
-            BotCommand("/imagine", "Generate images with DALL-E engine"),
-        ]
-    )
 
 
 telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
@@ -91,7 +53,6 @@ app = (
     .concurrent_updates(True)
     .http_version("1.1")
     .get_updates_http_version("1.1")
-    .post_init(set_commands)
     .build()
 )
 bot = app.bot
@@ -185,15 +146,6 @@ async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 @restricted(admins)
 @send_typing_action
-async def send_example(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if update.message is None:
-        return
-    update.message.text = example_tg
-    await process_message(update, context)
-
-
-@restricted(admins)
-@send_typing_action
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await process_message(update, context)
 
@@ -266,7 +218,7 @@ def __query_cloudwatch_logs(query_string):
         logging.info(group_names)
         response = client.start_query(
             logGroupNames=group_names,
-            startTime=int((time.time() - 3600 * 3) * 1000),  # 3h in ms
+            startTime=int((time.time() - 3600 * 3) * 1000),  # 3h
             endTime=int(time.time() * 1000),
             queryString=query_string,
             limit=1000,
@@ -450,7 +402,6 @@ async def __process_text(
         "timestamp": update.effective_message.date.timestamp(),
         "config": config,
     }
-    # logging.info(envelop)
     engines = json.dumps(config["engines"])
     try:
         sns.publish(
@@ -486,7 +437,6 @@ async def __process_translation(
         "timestamp": update.effective_message.date.timestamp(),
         "languages": lang.upper(),
     }
-    # logging.info(envelop)
     engines = json.dumps("deepl")
     try:
         sns.publish(
@@ -567,7 +517,6 @@ async def _main(event):
         )
     )
     app.add_handler(CommandHandler("help", help_handler, filters=filters.COMMAND))
-    app.add_handler(CommandHandler("example", send_example, filters=filters.COMMAND))
     app.add_handler(CommandHandler("errors", grab_errors, filters=filters.COMMAND))
     app.add_handler(CommandHandler("redrive", redrive_dlq, filters=filters.COMMAND))
     app.add_handler(CommandHandler("ping", ping, filters=filters.COMMAND))
