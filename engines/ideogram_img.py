@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 import boto3
 from curl_cffi import requests
@@ -75,6 +76,16 @@ def send_retrieving_event(event: object) -> None:
     body = json.dumps(event)
     sqs.send_message(QueueUrl=ideogram_result_queue, MessageBody=body)
 
+def __process_payload(payload: Any, request_id: str) -> None:
+    prompt = payload["text"]
+    if prompt is None or not prompt.strip():
+        return
+
+    result_id = request_images(prompt=prompt)
+    payload["result_id"] = result_id
+    payload["headers"] = headers
+    payload["queue_url"] = ideogram_result_queue
+    send_retrieving_event(payload)
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
@@ -82,12 +93,13 @@ def sqs_handler(event, context):
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        prompt = payload["text"]
-        if prompt is None or not prompt.strip():
-            return
+        __process_payload(payload, request_id)
 
-        result_id = request_images(prompt=prompt)
-        payload["result_id"] = result_id
-        payload["headers"] = headers
-        payload["queue_url"] = ideogram_result_queue
-        send_retrieving_event(payload)
+def sns_handler(event, context):
+    """AWS SNS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
+    for record in event["Records"]:
+        payload = json.loads(record["Sns"]["Message"])
+        __process_payload(payload, request_id)
+

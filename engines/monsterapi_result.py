@@ -26,6 +26,8 @@ headers = {
 
 def callback_handler(event, context) -> None:
     """AWS Lambda event handler"""
+    if(event is None or event.get("body") is None):
+        return
     body = json.loads(event["body"])
     process_id = body["process_id"]
     status = body["status"]

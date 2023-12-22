@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 import boto3
 import requests
@@ -67,6 +68,39 @@ token = read_ssm_param(param_name="MONSTERAPI_TOKEN")
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
+def __process_payload(payload: Any, request_id: str) -> None:
+    user_id = payload["user_id"]
+    user_context = UserContext(
+        user_id=f"{user_id}_{payload['chat_id']}",
+        request_id=request_id,
+        engine_id=engine_type,
+        username=payload["username"],
+    )
+    question = payload["text"]
+    if "/ping" in question:
+        payload["response"] = "pong"
+        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+        return
+
+    if "command" in payload["type"]:
+        process_command(input=question, context=user_context)
+        return
+
+    process_id = ask(text=question, context=user_context)
+    req_resp = RequestJobs(request_id=process_id, engine_id=engine_type)
+    req_resp.save(
+        context={
+            "user_id": user_id,
+            "chat_id": payload["chat_id"],
+            "message_id": payload["message_id"],
+            "update_id": payload["update_id"],
+            "username": payload["username"],
+            "text": question,
+        },
+    )
+    user_context.conversation_id = process_id
+    user_context.parent_id = process_id
+    user_context.save_context()
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
@@ -74,35 +108,12 @@ def sqs_handler(event, context):
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        user_id = payload["user_id"]
-        user_context = UserContext(
-            user_id=f"{user_id}_{payload['chat_id']}",
-            request_id=request_id,
-            engine_id=engine_type,
-            username=payload["username"],
-        )
-        question = payload["text"]
-        if "/ping" in question:
-            payload["response"] = "pong"
-            sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
-            return
+        __process_payload(payload, request_id)
 
-        if "command" in payload["type"]:
-            process_command(input=question, context=user_context)
-            return
-
-        process_id = ask(text=question, context=user_context)
-        req_resp = RequestJobs(request_id=process_id, engine_id=engine_type)
-        req_resp.save(
-            context={
-                "user_id": user_id,
-                "chat_id": payload["chat_id"],
-                "message_id": payload["message_id"],
-                "update_id": payload["update_id"],
-                "username": payload["username"],
-                "text": question,
-            },
-        )
-        user_context.conversation_id = process_id
-        user_context.parent_id = process_id
-        user_context.save_context()
+def sns_handler(event, context):
+    """AWS SNS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
+    for record in event["Records"]:
+        payload = json.loads(record["Sns"]["Message"])
+        __process_payload(payload, request_id)

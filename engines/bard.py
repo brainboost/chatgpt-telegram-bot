@@ -1,7 +1,7 @@
 import json
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 import boto3
 import requests
@@ -124,6 +124,31 @@ def __as_markdown(input: str) -> str:
     esc_pattern = re.compile(f"([{re.escape(r'._-+#|{}!=()<>[]')}])")
     return re.sub(esc_pattern, r"\\\1", input)
 
+def __process_payload(payload: Any, request_id: str) -> None:
+    user_id = payload["user_id"]
+    user_context = UserContext(
+        user_id=f"{user_id}_{payload['chat_id']}",
+        request_id=request_id,
+        engine_id=engine_type,
+        username=payload["username"],
+    )
+    if "command" in payload["type"]:
+        process_command(input=payload["text"], context=user_context)
+        return
+
+    instance = create(conversation_id=user_context.conversation_id)
+    response = ask(
+        text=payload["text"],
+        chatbot=instance,
+        context=user_context,
+    )
+    user_context.save_conversation(
+        conversation={"request": payload["text"], "response": response},
+    )
+    payload["response"] = encode_message(response)
+    payload["engine"] = engine_type
+    logging.info(payload)
+    sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
@@ -131,27 +156,13 @@ def sqs_handler(event, context):
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        user_id = payload["user_id"]
-        user_context = UserContext(
-            user_id=f"{user_id}_{payload['chat_id']}",
-            request_id=request_id,
-            engine_id=engine_type,
-            username=payload["username"],
-        )
-        if "command" in payload["type"]:
-            process_command(input=payload["text"], context=user_context)
-            return
+        __process_payload(payload, request_id)
 
-        instance = create(conversation_id=user_context.conversation_id)
-        response = ask(
-            text=payload["text"],
-            chatbot=instance,
-            context=user_context,
-        )
-        user_context.save_conversation(
-            conversation={"request": payload["text"], "response": response},
-        )
-        payload["response"] = encode_message(response)
-        payload["engine"] = engine_type
-        logging.info(payload)
-        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+def sns_handler(event, context):
+    """AWS SNS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
+    for record in event["Records"]:
+        payload = json.loads(record["Sns"]["Message"])
+        __process_payload(payload, request_id)
+

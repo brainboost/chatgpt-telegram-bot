@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 import boto3
 from BingImageCreator import ImageGen
@@ -32,6 +33,47 @@ imageGen = create()
 results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
+def __process_payload(payload: Any, request_id: str) -> None:
+    prompt = payload["text"]
+    list = []
+    if prompt is None or not prompt.strip():
+        return
+    try:
+        list = imageGen.get_images(prompt)
+    except Exception as e:
+        if "prompt has been blocked" in str(e):
+            message = escape_markdown_v2(str(e))
+            list = [message]
+        else:
+            logging.error(e)
+            logging.info(payload)
+            logging.info(imageGen.session.__dict__)
+
+    payload["response"] = list
+    user_id = payload["user_id"]
+    user_context = UserContext(
+        user_id=f"{user_id}_{payload['chat_id']}",
+        request_id=request_id,
+        engine_id=engine_type,
+        username=payload["username"],
+    )
+    user_context.conversation_id = request_id
+    try:
+        user_context.save_conversation(
+            conversation=payload,
+        )
+    except Exception as e:
+        logging.error(
+            f"Saving conversation error. User_id: {user_id}_{payload['chat_id']}, item: {payload}",
+            exc_info=e,
+        )
+    logging.info(list)
+    message = "\n".join(list)
+    payload["response"] = encode_message(message)
+    payload["engine"] = engine_type
+    # logging.info(payload)
+    sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+
 
 def sqs_handler(event, context):
     """AWS SQS event handler"""
@@ -39,42 +81,12 @@ def sqs_handler(event, context):
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        prompt = payload["text"]
-        list = []
-        if prompt is None or not prompt.strip():
-            return
-        try:
-            list = imageGen.get_images(prompt)
-        except Exception as e:
-            if "prompt has been blocked" in str(e):
-                message = escape_markdown_v2(str(e))
-                list = [message]
-            else:
-                logging.error(e)
-                logging.info(payload)
-                logging.info(imageGen.session.__dict__)
+        __process_payload(payload, request_id)
 
-        payload["response"] = list
-        user_id = payload["user_id"]
-        user_context = UserContext(
-            user_id=f"{user_id}_{payload['chat_id']}",
-            request_id=request_id,
-            engine_id=engine_type,
-            username=payload["username"],
-        )
-        user_context.conversation_id = request_id
-        try:
-            user_context.save_conversation(
-                conversation=payload,
-            )
-        except Exception as e:
-            logging.error(
-                f"Saving conversation error. User_id: {user_id}_{payload['chat_id']}, item: {payload}",
-                exc_info=e,
-            )
-
-        logging.info(list)
-        message = "\n".join(list)
-        payload["response"] = encode_message(message)
-        payload["engine"] = engine_type
-        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+def sns_handler(event, context):
+    """AWS SNS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
+    for record in event["Records"]:
+        payload = json.loads(record["Sns"]["Message"])
+        __process_payload(payload, request_id)
