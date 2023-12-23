@@ -52,7 +52,8 @@ class ChatBotStack(Stack):
             aws_iam.PolicyStatement(
                 actions=[
                     "sns:Publish",
-                    "sqs:ReceiveMessage",
+                    "sns:ReceiveMessage",
+                    "sqs:ListQueues",
                     "sqs:SendMessage",
                     "sqs:DeleteMessage",
                     "sqs:GetQueueAttributes",
@@ -74,6 +75,16 @@ class ChatBotStack(Stack):
             versioned=True,
         )
 
+        result_dlq = aws_sqs.Queue(
+            self,
+            "Result-Queue-DLQ",
+            queue_name="Result-Queue-DLQ",
+            removal_policy=RemovalPolicy.DESTROY,
+            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
+            retention_period=Duration.days(5),
+            enforce_ssl=True,
+        )
+
         docker_path = str(Path(__file__).parent.parent.resolve())
         result_handler = DockerImageFunction(
             self,
@@ -88,50 +99,26 @@ class ChatBotStack(Stack):
             timeout=Duration.minutes(1),
             role=lambda_role,
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
+            dead_letter_queue_enabled=True,
+            dead_letter_queue=result_dlq,
         )
-
-        # result SQS queue
-
-        result_dlq = aws_sqs.Queue(
+        self.result_topic = aws_sns.Topic(
             self,
-            "Result-Queue-DLQ",
-            queue_name="Result-Queue-DLQ",
-            removal_policy=RemovalPolicy.DESTROY,
-            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            retention_period=Duration.days(3),
-            enforce_ssl=True,
-        )
-        self.dlq = aws_sqs.DeadLetterQueue(
-            max_receive_count=1,
-            queue=result_dlq,
-        )
-
-        result_queue = aws_sqs.Queue(
-            self,
-            "Result-Queue",
-            queue_name="Result-Queue",
-            retention_period=Duration.days(3),
-            visibility_timeout=Duration.minutes(1),
-            removal_policy=RemovalPolicy.DESTROY,
-            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            enforce_ssl=True,
-            dead_letter_queue=self.dlq,
-        )
-        result_queue.add_to_resource_policy(
-            aws_iam.PolicyStatement(
-                actions=["sqs:SendMessage"],
-                principals=[aws_iam.AnyPrincipal()],
-                resources=[result_queue.queue_arn],
-            )
+            "ResultTopic",
+            display_name="Result SNS topic",
+            topic_name="result-ai-topic",
         )
         result_handler.add_event_source(
-            aws_lambda_event_sources.SqsEventSource(result_queue)
+            aws_lambda_event_sources.SnsEventSource(
+                topic=self.result_topic,
+                # dead_letter_queue=result_dlq,
+            )
         )
         aws_ssm.StringParameter(
             self,
-            "sqsResultsQueueParam",
-            parameter_name="RESULTS_SQS_QUEUE_URL",
-            string_value=result_queue.queue_url,
+            "snsResultTopicParam",
+            parameter_name="RESULT_SNS_TOPIC_ARN",
+            string_value=self.result_topic.topic_arn,
         )
 
         lambda_function = DockerImageFunction(
@@ -150,7 +137,7 @@ class ChatBotStack(Stack):
                 self,
                 "BotHandler-DLQ",
                 queue_name="BotHandler-DLQ",
-                retention_period=Duration.days(3),
+                retention_period=Duration.days(5),
             ),
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
@@ -243,22 +230,22 @@ class ChatBotStack(Stack):
             comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         )
 
-        result_handler_error_alarm = aws_cloudwatch.Alarm(
-            self,
-            "ResultProcessingHandlerLambdaErrors",
-            alarm_name="ResultProcessingHandlerLambdaErrors",
-            metric=result_handler.metric_errors(),
-            threshold=1,
-            evaluation_periods=1,
-            datapoints_to_alarm=1,
-            treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-            alarm_description="Alarm when ResultProcessingHandler lambda has errors",
-            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        )
+        # result_handler_error_alarm = aws_cloudwatch.Alarm(
+        #     self,
+        #     "ResultProcessingHandlerLambdaErrors",
+        #     alarm_name="ResultProcessingHandlerLambdaErrors",
+        #     metric=result_handler.metric_errors(),
+        #     threshold=1,
+        #     evaluation_periods=1,
+        #     datapoints_to_alarm=1,
+        #     treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
+        #     alarm_description="Alarm when ResultProcessingHandler lambda has errors",
+        #     comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        # )
 
         bot_handler_error_alarm.add_alarm_action(
             aws_cloudwatch_actions.SnsAction(alarm_topic)
         )
-        result_handler_error_alarm.add_alarm_action(
-            aws_cloudwatch_actions.SnsAction(alarm_topic)
-        )
+        # result_handler_error_alarm.add_alarm_action(
+        #     aws_cloudwatch_actions.SnsAction(alarm_topic)
+        # )

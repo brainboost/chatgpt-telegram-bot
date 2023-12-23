@@ -70,8 +70,8 @@ def create(context: UserContext) -> Chatbot:
     return chatbot
 
 
-results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
-sqs = boto3.session.Session().client("sqs")
+result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
+sns = boto3.session.Session().client("sns")
 
 
 def __process_payload(payload: Any, request_id: str) -> None:
@@ -90,16 +90,8 @@ def __process_payload(payload: Any, request_id: str) -> None:
     payload["response"] = response
     payload["response"] = encode_message(response)
     payload["engine"] = engine_type
-    # logging.info(payload)
-    sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+    sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
 
-def sqs_handler(event, context):
-    """AWS SQS event handler"""
-    request_id = context.aws_request_id
-    logging.info(f"Request ID: {request_id}")
-    for record in event["Records"]:
-        payload = json.loads(record["body"])
-        __process_payload(payload, request_id)
 
 def sns_handler(event, context):
     """AWS SNS event handler"""

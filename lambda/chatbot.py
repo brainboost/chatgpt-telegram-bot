@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import time
+from typing import Any
 
 import boto3
 import boto3.session
@@ -40,7 +41,7 @@ logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 user_config = UserConfig()
-sns = boto3.client("sns")
+sns = boto3.session.Session().client("sns")
 
 
 telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
@@ -59,7 +60,6 @@ logging.info("application startup")
 logging.info(f"admins:{admins}")
 
 # Telegram commands
-
 
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if (
@@ -249,33 +249,45 @@ async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     )
 
 
-def __start_redrive_dlq() -> dict:
+def __start_redrive_dlq() -> Any:
     session = boto3.session.Session()
-    region = session.region_name
-    sts_client = session.client("sts")
-    account_id = sts_client.get_caller_identity()["Account"]
-    dlq_arn = f"arn:aws:sqs:{region}:{account_id}:Request-Queues-DLQ"
     sqs = session.client("sqs")
-    try:
-        dlq_response = sqs.start_message_move_task(SourceArn=dlq_arn)
-        if dlq_response is not None:
-            handle = dlq_response["TaskHandle"]
-            logging.info(f"Redrive task started: {handle}")
-            while True:
-                list_response = sqs.list_message_move_tasks(SourceArn=dlq_arn)
-                results = list_response["Results"][0]
-                logging.info(f"Results: {results}")
-                if results["Status"] == "RUNNING":
-                    logging.info("Delaying..")
-                    time.sleep(2)
-                else:
-                    break
+    for queue_url in sqs.list_queues()['QueueUrls']:
+        if '-DLQ' in queue_url:
+            [region, account_id, name] = __parse_sqs_url(queue_url)
+            dlq_arn = f"arn:aws:sqs:{region}:{account_id}:{name}"
+            logging.info(f"DLQ ARN: {dlq_arn}")
+        try:
+            dlq_response = sqs.start_message_move_task(SourceArn=dlq_arn)
+            if dlq_response is not None:
+                handle = dlq_response["TaskHandle"]
+                logging.info(f"Redrive task started: {handle}")
+        except ClientError as e:
+            logging.error(f"Redriving DLQ messages error :{e}")
+            return f"DLQ Redrive failed: {e}"
+    done = False    
+    while not done:
+        list_response = sqs.list_message_move_tasks(SourceArn=dlq_arn)
+        results = list_response["Results"]
+        logging.info(f"Results: {results}")
+        if len(results) == 0:
+            return []
+        for result in results:
+            if result["Status"] == "RUNNING":
+                logging.info("Delaying 2s ...")
+                time.sleep(2)
+                break
+        done = True
+    logging.info(f"Finished DLQ Redrive: {results}")
+    return results
 
-            logging.info(f"Finished: {results}")
-            return results
-    except ClientError as e:
-        logging.error(f"Redriving DLQ messages error :{e}")
-        return f"DLQ Redrive failed: {e}"
+def __parse_sqs_url(url: str) -> tuple[str, str, str]:
+    """Parses the SQS URL and extracts the region, account ID, and queue name"""    
+    parts = url.split('/')
+    region = parts[2].split('.')[1]
+    account_id = parts[3]
+    name = parts[4]
+    return region, account_id, name
 
 
 # Translation handlers

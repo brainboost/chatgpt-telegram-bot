@@ -19,10 +19,6 @@ post_task_url = f"{base_url}/api/images/sample"
 retrieve_metadata_url = f"{base_url}/api/images/retrieve_metadata_request_id/"
 get_images_url = f"{base_url}/api/images/direct/"
 
-results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
-ideogram_result_queue = results_queue.replace(
-    results_queue.split("/")[-1], "Ideogram-Result-Queue"
-)
 sqs = boto3.session.Session().client("sqs")
 token = read_ssm_param(param_name="IDEOGRAM_TOKEN")
 user_id = read_ssm_param(param_name="IDEOGRAM_USER")
@@ -40,6 +36,7 @@ headers = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) \
         Gecko/20100101 Firefox/117.0",
 }
+ideogram_result_queue = sqs.get_queue_url(QueueName="Ideogram-Result-Queue")["QueueUrl"]
 
 
 def request_images(prompt: str) -> str:
@@ -86,14 +83,6 @@ def __process_payload(payload: Any, request_id: str) -> None:
     payload["headers"] = headers
     payload["queue_url"] = ideogram_result_queue
     send_retrieving_event(payload)
-
-def sqs_handler(event, context):
-    """AWS SQS event handler"""
-    request_id = context.aws_request_id
-    logging.info(f"Request ID: {request_id}")
-    for record in event["Records"]:
-        payload = json.loads(record["body"])
-        __process_payload(payload, request_id)
 
 def sns_handler(event, context):
     """AWS SNS event handler"""

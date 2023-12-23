@@ -25,7 +25,8 @@ def response_handler(event, context) -> None:
     """Result SQS processing handler."""
 
     for record in event["Records"]:
-        payload = json.loads(record["body"])
+        payload = json.loads(record["Sns"]["Message"])
+        # payload = json.loads(record["body"])
         chat_id = payload["chat_id"]
         message_id = payload["message_id"]
         message = decode_message(payload["response"])

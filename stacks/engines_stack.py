@@ -49,6 +49,7 @@ class EnginesStack(Stack):
                     "sqs:SendMessage",
                     "sqs:DeleteMessage",
                     "sns:ReceiveMessage",
+                    "sns:Publish",
                 ],
                 resources=["*"],
             )
@@ -74,13 +75,9 @@ class EnginesStack(Stack):
             queue_name="Request-Queues-DLQ",
             removal_policy=RemovalPolicy.DESTROY,
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            retention_period=Duration.days(3),
+            retention_period=Duration.days(5),
             enforce_ssl=True,
         )
-        # self.dlq = aws_sqs.DeadLetterQueue(
-        #     max_receive_count=1,
-        #     queue=request_dlq,
-        # )
         self.alarm_topic = aws_sns.Topic(
             self,
             "EnginesErrorsAlarms",
@@ -200,7 +197,7 @@ class EnginesStack(Stack):
             queue_name="MonsterApi-Callback-DLQ",
             removal_policy=RemovalPolicy.DESTROY,
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            retention_period=Duration.days(3),
+            retention_period=Duration.days(5),
             enforce_ssl=True,
         )
         api_callback = DockerImageFunction(
@@ -277,7 +274,7 @@ class EnginesStack(Stack):
                     queue_name="Ideogram-Result-Queue-DLQ",
                     removal_policy=RemovalPolicy.DESTROY,
                     encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-                    retention_period=Duration.days(3),
+                    retention_period=Duration.days(5),
                     enforce_ssl=True,
                 ),
             ),
@@ -344,6 +341,6 @@ class EnginesStack(Stack):
             aws_lambda_event_sources.SnsEventSource(
                 topic=self.request_topic,
                 filter_policy=sns_filter_policy,
-                dead_letter_queue=self.dlq,
+                # dead_letter_queue=self.dlq,
             )
         )

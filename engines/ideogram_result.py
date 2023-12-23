@@ -20,7 +20,8 @@ browser_version = "chrome110"
 retrieve_metadata_url = "https://ideogram.ai/api/images/retrieve_metadata_request_id/"
 get_images_url = "https://ideogram.ai/api/images/direct/"
 
-results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
+result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
+sns = boto3.session.Session().client("sns")
 sqs = boto3.session.Session().client("sqs")
 
 
@@ -84,5 +85,4 @@ def sqs_handler(event, context):
                 f"Saving conversation error. User_id: {user_id}_{payload['chat_id']}, item: {payload}",
                 exc_info=e,
             )
-        # logging.info(payload)
-        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+        sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
