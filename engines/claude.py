@@ -2,6 +2,7 @@ import json
 import logging
 import re
 import uuid
+from typing import Any
 
 import boto3
 from curl_cffi import requests
@@ -84,10 +85,11 @@ def ask(text: str, context: UserContext, attachment=None):
         headers=headers,
         data=payload,
         impersonate=browser_version,
-        timeout=500,
+        timeout=600,
     )
     if not response.ok:
-        logging.error(f"status:{response.status_code} {response.content}")
+        logging.error(f"POST request returned {response.status_code} {response.reason}")
+        logging.info(response.content.decode("utf-8"))
         logging.info(payload)
 
     decoded_data = response.content.decode("utf-8")
@@ -175,31 +177,41 @@ results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
 sqs = boto3.session.Session().client("sqs")
 
 
+def __process_payload(payload: Any, request_id: str) -> None:
+    user_id = payload["user_id"]
+    user_context = UserContext(
+        user_id=f"{user_id}_{payload['chat_id']}",
+        request_id=request_id,
+        engine_id=engine_type,
+        username=payload["username"],
+    )
+    if "command" in payload["type"]:
+        process_command(input=payload["text"], context=user_context)
+        return
+
+    response = ask(payload["text"], context=user_context)
+    user_context.save_conversation(
+        conversation={"request": payload["text"], "response": response},
+    )
+    payload["response"] = encode_message(response)
+    payload["engine"] = engine_type
+    sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+
 def sqs_handler(event, context):
     """AWS SQS event handler"""
     request_id = context.aws_request_id
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["body"])
-        user_id = payload["user_id"]
-        user_context = UserContext(
-            user_id=f"{user_id}_{payload['chat_id']}",
-            request_id=request_id,
-            engine_id=engine_type,
-            username=payload["username"],
-        )
-        if "command" in payload["type"]:
-            process_command(input=payload["text"], context=user_context)
-            return
-
-        response = ask(payload["text"], context=user_context)
-        user_context.save_conversation(
-            conversation={"request": payload["text"], "response": response},
-        )
-        payload["response"] = encode_message(response)
-        payload["engine"] = engine_type
-        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
-
+        __process_payload(payload, request_id)
+    
+def sns_handler(event, context):
+    """AWS SNS event handler"""
+    request_id = context.aws_request_id
+    logging.info(f"Request ID: {request_id}")
+    for record in event["Records"]:
+        payload = json.loads(record["Sns"]["Message"])
+        __process_payload(payload, request_id)
 
 # if __name__ == "__main__":
 #     put_request("does DALL-E uses stable diffusion?")

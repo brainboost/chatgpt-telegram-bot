@@ -10,7 +10,6 @@ from aws_cdk import (
     aws_lambda_event_sources,
     aws_logs,
     aws_sns,
-    aws_sns_subscriptions,
     aws_sqs,
     aws_ssm,
 )
@@ -49,6 +48,7 @@ class EnginesStack(Stack):
                 actions=[
                     "sqs:SendMessage",
                     "sqs:DeleteMessage",
+                    "sns:ReceiveMessage",
                 ],
                 resources=["*"],
             )
@@ -68,7 +68,7 @@ class EnginesStack(Stack):
             parameter_name="REQUESTS_SNS_TOPIC_ARN",
             string_value=self.request_topic.topic_arn,
         )
-        request_dlq = aws_sqs.Queue(
+        self.dlq = aws_sqs.Queue(
             self,
             "Request-Queues-DLQ",
             queue_name="Request-Queues-DLQ",
@@ -77,10 +77,10 @@ class EnginesStack(Stack):
             retention_period=Duration.days(3),
             enforce_ssl=True,
         )
-        self.dlq = aws_sqs.DeadLetterQueue(
-            max_receive_count=1,
-            queue=request_dlq,
-        )
+        # self.dlq = aws_sqs.DeadLetterQueue(
+        #     max_receive_count=1,
+        #     queue=request_dlq,
+        # )
         self.alarm_topic = aws_sns.Topic(
             self,
             "EnginesErrorsAlarms",
@@ -99,6 +99,20 @@ class EnginesStack(Stack):
         )
         self.docker_file_path = str(Path(__file__).parent.parent.resolve())
 
+        request_dlq_alarm = aws_cloudwatch.Alarm(
+            self,
+            "ResultDlqAlarm",
+            alarm_name="RequestDlqAlarm",
+            alarm_description="Alarm when Request DLQ queue has messages",
+            metric=self.dlq.metric_approximate_number_of_messages_visible(),
+            threshold=0,
+            evaluation_periods=1,
+            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
+        )
+        request_dlq_alarm.add_alarm_action(
+            aws_cloudwatch_actions.SnsAction(self.alarm_topic)
+        )
+
         # AI Engine Lambdas
 
         # Bing
@@ -111,7 +125,7 @@ class EnginesStack(Stack):
                 ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bing"]),
             },
-            handler=f"{ASSET_PATH}.bing.sqs_handler",
+            handler=f"{ASSET_PATH}.bing.sns_handler",
         )
 
         # Bard
@@ -124,7 +138,7 @@ class EnginesStack(Stack):
                 ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bard"]),
             },
-            handler=f"{ASSET_PATH}.bard.sqs_handler",
+            handler=f"{ASSET_PATH}.bard.sns_handler",
         )
 
         # ChatGPT
@@ -139,7 +153,7 @@ class EnginesStack(Stack):
                     allowlist=["chatgpt"]
                 ),
             },
-            handler=f"{ASSET_PATH}.chat_gpt.sqs_handler",
+            handler=f"{ASSET_PATH}.chat_gpt.sns_handler",
         )
 
         # Dall-E
@@ -149,7 +163,7 @@ class EnginesStack(Stack):
             sns_filter_policy={
                 "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["imagine"]),
             },
-            handler=f"{ASSET_PATH}.dalle_img.sqs_handler",
+            handler=f"{ASSET_PATH}.dalle_img.sns_handler",
         )
 
         # DeepL
@@ -161,7 +175,7 @@ class EnginesStack(Stack):
                     allowlist=["translate"]
                 ),
             },
-            handler=f"{ASSET_PATH}.deepl_tr.sqs_handler",
+            handler=f"{ASSET_PATH}.deepl_tr.sns_handler",
         )
 
         # LLama2
@@ -176,7 +190,7 @@ class EnginesStack(Stack):
                     allowlist=["llama"]
                 ),
             },
-            handler=f"{ASSET_PATH}.monsterapi.sqs_handler",
+            handler=f"{ASSET_PATH}.monsterapi.sns_handler",
         )
 
         # Add monsterapi callback handler
@@ -209,17 +223,17 @@ class EnginesStack(Stack):
         dlq.grant_send_messages(api_callback)
         error_alarm = aws_cloudwatch.Alarm(
             self,
-            "MonsterApiCallbackHandlerErrors",
-            alarm_name="MonsterApiCallbackHandlerErrors",
-            metric=api_callback.metric_errors(),
-            threshold=1,
+            "MonsterApiCallbackDlqErrors",
+            alarm_name="MonsterApiCallbackDlqErrors",
+            alarm_description="Alarm when MonsterApi callback DLQ has messages",
+            metric=dlq.metric_approximate_number_of_messages_visible(),
+            threshold=0,
             evaluation_periods=1,
-            datapoints_to_alarm=1,
-            treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-            alarm_description="Alarm when MonsterApi callback lambda has errors",
-            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
         )
+
         error_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(self.alarm_topic))
+        
         callback_lambda_url = api_callback.add_function_url(
             auth_type=_lambda.FunctionUrlAuthType.NONE,
             cors={
@@ -243,7 +257,7 @@ class EnginesStack(Stack):
                     allowlist=["ideogram"]
                 ),
             },
-            handler=f"{ASSET_PATH}.ideogram_img.sqs_handler",
+            handler=f"{ASSET_PATH}.ideogram_img.sns_handler",
         )
 
         # Add ideogram result queue with delayed message to retrieve results when ready
@@ -298,7 +312,7 @@ class EnginesStack(Stack):
                     allowlist=["claude"]
                 ),
             },
-            handler=f"{ASSET_PATH}.claude.sqs_handler",
+            handler=f"{ASSET_PATH}.claude.sns_handler",
         )
 
     def __create_engine(
@@ -309,23 +323,6 @@ class EnginesStack(Stack):
     ) -> None:
         """Creates infrastructure for the AI engine handler (queue-lambda-alarm)."""
 
-        queue = aws_sqs.Queue(
-            self,
-            f"{engine_name}-Request-Queue",
-            queue_name=f"{engine_name}-Request-Queue",
-            removal_policy=RemovalPolicy.DESTROY,
-            visibility_timeout=Duration.minutes(3),
-            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            dead_letter_queue=self.dlq,
-            enforce_ssl=True,
-        )
-        self.request_topic.add_subscription(
-            aws_sns_subscriptions.SqsSubscription(
-                queue=queue,
-                raw_message_delivery=True,
-                filter_policy=sns_filter_policy,
-            )
-        )
         lambda_fn = DockerImageFunction(
             self,
             f"{engine_name}Handler",
@@ -340,18 +337,13 @@ class EnginesStack(Stack):
             memory_size=256,
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
             role=self.lambda_role,
+            dead_letter_queue_enabled=True,
+            dead_letter_queue=self.dlq,
         )
-        lambda_fn.add_event_source(aws_lambda_event_sources.SqsEventSource(queue))
-        error_alarm = aws_cloudwatch.Alarm(
-            self,
-            f"{engine_name}LambdaErrors",
-            alarm_name=f"{engine_name}LambdaErrors",
-            metric=lambda_fn.metric_errors(),
-            threshold=1,
-            evaluation_periods=1,
-            datapoints_to_alarm=1,
-            treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-            alarm_description=f"Alarm when {engine_name} lambda has errors",
-            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
+        lambda_fn.add_event_source(
+            aws_lambda_event_sources.SnsEventSource(
+                topic=self.request_topic,
+                filter_policy=sns_filter_policy,
+                dead_letter_queue=self.dlq,
+            )
         )
-        error_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(self.alarm_topic))
