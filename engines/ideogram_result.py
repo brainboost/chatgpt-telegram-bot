@@ -11,7 +11,7 @@ from .common_utils import (
 )
 from .user_context import UserContext
 
-logging.basicpayload()
+logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 engine_type = "ideogram"
@@ -76,6 +76,7 @@ def sqs_handler(event, context):
             engine_id=engine_type,
             username=payload["username"],
         )
+        user_context.conversation_id = result_id
         try:
             user_context.save_conversation(
                 conversation=payload,

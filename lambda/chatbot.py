@@ -26,6 +26,7 @@ from telegram.ext import (
 from .help_command import help_handler, start_handler
 from .user_config import UserConfig
 from .utils import (
+    escape_markdown_v2,
     generate_transcription,
     read_ssm_param,
     recursive_stringify,
@@ -304,7 +305,7 @@ def __start_redrive_dlq() -> Any:
             except ClientError as e:
                 logging.error(f"Redriving DLQ messages error :{e}")
                 return f"DLQ Redrive failed for {queue_url}"
-    return "Finished DLQ redrive. {} messages moved".format(count)
+    return escape_markdown_v2("Finished DLQ redrive. {} messages moved".format(count))
 
 
 # Translation handlers

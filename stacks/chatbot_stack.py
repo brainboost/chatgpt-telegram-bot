@@ -53,6 +53,7 @@ class ChatBotStack(Stack):
                 actions=[
                     "sns:Publish",
                     "sns:ReceiveMessage",
+                    "sqs:ReceiveMessage",
                     "sqs:ListQueues",
                     "sqs:SendMessage",
                     "sqs:DeleteMessage",

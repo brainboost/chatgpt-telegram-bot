@@ -42,12 +42,14 @@ ideogram_result_queue = sqs.get_queue_url(QueueName="Ideogram-Result-Queue")["Qu
 def request_images(prompt: str) -> str:
     payload = {
         "aspect_ratio": "square",
+        "model_version": "V_0_2",
         "channel_id": channel_id,
         "prompt": prompt,
         "raw_or_fun": "raw",
         "speed": "slow",
         "style": "photo",
         "user_id": user_id,
+        "variation_strength": 50
     }
     logging.info(payload)
     response = requests.post(
