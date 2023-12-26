@@ -34,6 +34,7 @@ from .utils import (
     send_action,
     send_typing_action,
     split_long_message,
+    upload_to_s3,
 )
 
 LANG, TEXT = range(2)
@@ -169,19 +170,6 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.effective_message.reply_text(
             text="An error occured when trying to generate images"
         )
-
-
-@send_typing_action
-async def uploads(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    if (
-        update.effective_user is None
-        or update.effective_message is None
-        or update.effective_message.text is None
-    ):
-        return
-
-    logging.info(update.effective_message.caption)
-    logging.info(update.effective_message.text)
 
 
 @send_typing_action
@@ -387,17 +375,98 @@ async def tr_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 
 async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("voice message in 'process_voice_message'")
     voice_message = update.message.voice
     file_id = voice_message.file_id
+    logging.info(file_id)
     file = await bot.get_file(file_id)
-    transcript_msg = generate_transcription(file)
+    transcript_msg = await generate_transcription(file)
     logging.info(transcript_msg)
     try:
         user_id = int(update.effective_message.from_user.id)
         config = user_config.read(user_id)
         await __process_text(update, context, config)
-    except Exception as e:
-        logging.error(e)
+    except Exception:
+        logging.error(msg="Exception occured during processing of the voice message", 
+        exc_info=context.error)
+
+# @send_typing_action
+async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    logging.info("File upload in 'uploads'")
+    if update.message.photo is None:
+        return
+    logging.info(update.message)
+    caption = update.message.caption
+    if bot.name not in caption and "group" in update.message.chat.type:
+        return
+    s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
+    photo = max(update.message.photo, key=lambda x: x.file_size)
+    logging.info(photo)
+    file_id = photo.file_id
+    logging.info(file_id)
+    s3_prefix = f"{photo.file_unique_id}.jpg"
+    try:
+        file = await bot.get_file(file_id)
+        path = await upload_to_s3(file, s3_bucket, s3_prefix)
+        logging.info(f"File uploaded {path}")
+    except Exception:
+        logging.error(msg="Exception occured during processing of the picture", 
+        exc_info=context.error)
+    
+    user_id = int( update.effective_user.id)
+    config = user_config.read(user_id)
+    envelop = {
+        "type": "text",
+        "user_id": user_id,
+        "username": update.effective_user.name,
+        "update_id": update.update_id,
+        "message_id": update.effective_message.id,
+        "text": caption,
+        "chat_id": update.effective_chat.id,
+        "timestamp": update.effective_message.date.timestamp(),
+        "config": config,
+        "attachment": path,
+    }
+    __send_envelop(envelop, json.dumps(config["engines"]))
+
+
+async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info("File upload in 'process_attachment'")
+    if update.message is None:
+        return
+    logging.info(update.message)
+    caption = update.message.caption
+    if bot.name not in caption and "group" in update.message.chat.type:
+        return
+    attachment = update.message.effective_attachment
+    logging.info(attachment)
+    file_id = attachment.file_id
+    logging.info(file_id)
+    s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
+    s3_prefix = f"{attachment.file_unique_id}-{attachment.file_name}"
+    try:
+        file = await bot.get_file(file_id)
+        path = await upload_to_s3(file, s3_bucket, s3_prefix)
+        logging.info(f"File uploaded {path}")
+    except Exception:
+        logging.error(msg="Exception occured during processing of the attachment", 
+        exc_info=context.error)
+    
+    user_id = int(update.effective_user.id)
+    config = user_config.read(user_id)
+    envelop = {
+        "type": "text",
+        "user_id": user_id,
+        "username": update.effective_user.name,
+        "update_id": update.update_id,
+        "message_id": update.effective_message.id,
+        "text": caption,
+        "chat_id": update.effective_chat.id,
+        "timestamp": update.effective_message.date.timestamp(),
+        "config": config,
+        "attachment": path,
+    }
+    __send_envelop(envelop, json.dumps(config["engines"]))
 
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -409,8 +478,9 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id = int(update.message.from_user.id)
         config = user_config.read(user_id)
         await __process_text(update, context, config)
-    except Exception as e:
-        logging.error(e)
+    except Exception:
+        logging.error(msg="Exception occured during processing of the message", 
+        exc_info=context.error)
 
 
 @send_typing_action
@@ -431,21 +501,7 @@ async def __process_text(
         "timestamp": update.effective_message.date.timestamp(),
         "config": config,
     }
-    engines = json.dumps(config["engines"])
-    try:
-        sns.publish(
-            TopicArn=sns_topic,
-            Message=json.dumps(envelop),
-            MessageAttributes={
-                "type": {"DataType": "String", "StringValue": envelop["type"]},
-                "engines": {
-                    "DataType": "String.Array",
-                    "StringValue": engines,
-                },
-            },
-        )
-    except Exception as e:
-        logging.error(e)
+    __send_envelop(envelop, json.dumps(config["engines"]))
 
 
 @send_typing_action
@@ -466,21 +522,7 @@ async def __process_translation(
         "timestamp": update.effective_message.date.timestamp(),
         "languages": lang.upper(),
     }
-    engines = json.dumps("deepl")
-    try:
-        sns.publish(
-            TopicArn=sns_topic,
-            Message=json.dumps(envelop),
-            MessageAttributes={
-                "type": {"DataType": "String", "StringValue": envelop["type"]},
-                "engines": {
-                    "DataType": "String.Array",
-                    "StringValue": engines,
-                },
-            },
-        )
-    except Exception as e:
-        logging.error(e)
+    __send_envelop(envelop, json.dumps("deepl"))
 
 
 async def __process_images(
@@ -506,16 +548,23 @@ async def __process_images(
         "config": config,
     }
     logging.info(envelop)
+    __send_envelop(envelop, img_type)
+
+
+async def __send_envelop(
+    envelop: Any,
+    engines: str
+    ) -> None:
     try:
         sns.publish(
             TopicArn=sns_topic,
             Message=json.dumps(envelop),
             MessageAttributes={
-                "type": {"DataType": "String", "StringValue": envelop["type"]},
+                "type": {"DataType": "String", "StringValue": engines},
             },
         )
     except Exception as e:
-        logging.error(e)
+        logging.error("Can't send envelop to request topic", exc_info=e)
 
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
@@ -564,9 +613,10 @@ async def _main(event):
         fallbacks=[CommandHandler("cancel", tr_cancel)],
     )
     app.add_handler(conv_handler)
-    app.add_handler(MessageHandler(filters.ALL, process_message))
-    app.add_handler(MessageHandler(filters.VOICE, process_voice_message))
-    app.add_handler(MessageHandler(filters=filters.PHOTO, callback=uploads))
+    app.add_handler(MessageHandler(filters=filters.VOICE, callback=process_voice_message))
+    app.add_handler(MessageHandler(filters=filters.PHOTO, callback=process_photo))
+    app.add_handler(MessageHandler(filters=filters.ATTACHMENT, callback=process_attachment))
+    app.add_handler(MessageHandler(filters=filters.ALL, callback=process_message))
 
     try:
         await app.initialize()
