@@ -241,10 +241,10 @@ def __query_cloudwatch_logs(query_string):
 async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if update.effective_message is None:
         return
-    await update.effective_message.reply_text(text="Starting Redrive DLQ task")
+    await update.effective_message.reply_text(text="Starting Redrive DLQ")
     results = __start_redrive_dlq()
     await update.effective_message.reply_text(
-        text=f"Result: ```{json.dumps(results)}```",
+        text=results,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
     )
 
@@ -252,42 +252,59 @@ async def redrive_dlq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 def __start_redrive_dlq() -> Any:
     session = boto3.session.Session()
     sqs = session.client("sqs")
-    for queue_url in sqs.list_queues()['QueueUrls']:
-        if '-DLQ' in queue_url:
-            [region, account_id, name] = __parse_sqs_url(queue_url)
-            dlq_arn = f"arn:aws:sqs:{region}:{account_id}:{name}"
-            logging.info(f"DLQ ARN: {dlq_arn}")
-        try:
-            dlq_response = sqs.start_message_move_task(SourceArn=dlq_arn)
-            if dlq_response is not None:
-                handle = dlq_response["TaskHandle"]
-                logging.info(f"Redrive task started: {handle}")
-        except ClientError as e:
-            logging.error(f"Redriving DLQ messages error :{e}")
-            return f"DLQ Redrive failed: {e}"
-    done = False    
-    while not done:
-        list_response = sqs.list_message_move_tasks(SourceArn=dlq_arn)
-        results = list_response["Results"]
-        logging.info(f"Results: {results}")
-        if len(results) == 0:
-            return []
-        for result in results:
-            if result["Status"] == "RUNNING":
-                logging.info("Delaying 2s ...")
-                time.sleep(2)
-                break
-        done = True
-    logging.info(f"Finished DLQ Redrive: {results}")
-    return results
-
-def __parse_sqs_url(url: str) -> tuple[str, str, str]:
-    """Parses the SQS URL and extracts the region, account ID, and queue name"""    
-    parts = url.split('/')
-    region = parts[2].split('.')[1]
-    account_id = parts[3]
-    name = parts[4]
-    return region, account_id, name
+    sns = session.client("sns")
+    count = 0
+    for queue_url in sqs.list_queues()["QueueUrls"]:
+        if "-DLQ" in queue_url:
+            logging.info(queue_url)
+            try:
+                while True:
+                    messages = sqs.receive_message(
+                        QueueUrl=queue_url, MaxNumberOfMessages=10, WaitTimeSeconds=10
+                    )
+                    if "Messages" in messages:
+                        for msg in messages["Messages"]:
+                            receipt_handle = msg["ReceiptHandle"]
+                            body = json.loads(msg["Body"])
+                            record = body["Records"][0]
+                            if "sns" in record["EventSource"]:
+                                topic = record["Sns"]["TopicArn"]
+                                payload = record["Sns"]["Message"]
+                                logging.info(payload)
+                                attrs = {}
+                                for key, value in record["Sns"][
+                                    "MessageAttributes"
+                                ].items():
+                                    attrs[key] = {
+                                        "DataType": value["Type"],
+                                        "StringValue": value["Value"],
+                                    }
+                                resp = sns.publish(
+                                    TopicArn=topic,
+                                    MessageStructure="json",
+                                    MessageAttributes=attrs,
+                                    Message=json.dumps({"default": payload}),
+                                )
+                                logging.info(
+                                    f"Published to SNS topic {topic}. MessageId: {resp['MessageId']}"
+                                )
+                                count += 1
+                                sqs.delete_message(
+                                    QueueUrl=queue_url, ReceiptHandle=receipt_handle
+                                )
+                                logging.info(f"Message deleted from {queue_url}")
+                            else:
+                                logging.error(
+                                    f"Redrive is only available for SNS. Actual event source: {record['EventSource']}"
+                                )
+                                logging.info(record)
+                    else:
+                        logging.info(f"Queue is empty: {queue_url}")
+                        break
+            except ClientError as e:
+                logging.error(f"Redriving DLQ messages error :{e}")
+                return f"DLQ Redrive failed for {queue_url}"
+    return "Finished DLQ redrive. {} messages moved".format(count)
 
 
 # Translation handlers

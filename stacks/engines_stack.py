@@ -266,18 +266,6 @@ class EnginesStack(Stack):
             visibility_timeout=Duration.seconds(5),
             delivery_delay=Duration.seconds(5),
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            dead_letter_queue=aws_sqs.DeadLetterQueue(
-                max_receive_count=1,
-                queue=aws_sqs.Queue(
-                    self,
-                    "Ideogram-Result-Queue-DLQ",
-                    queue_name="Ideogram-Result-Queue-DLQ",
-                    removal_policy=RemovalPolicy.DESTROY,
-                    encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-                    retention_period=Duration.days(5),
-                    enforce_ssl=True,
-                ),
-            ),
             enforce_ssl=True,
         )
         resultHandler = DockerImageFunction(
@@ -292,6 +280,8 @@ class EnginesStack(Stack):
             ),
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
             role=self.lambda_role,
+            dead_letter_queue_enabled=True,
+            dead_letter_queue=self.dlq,
         )
         resultHandler.add_event_source(
             aws_lambda_event_sources.SqsEventSource(resultQueue)
@@ -341,6 +331,5 @@ class EnginesStack(Stack):
             aws_lambda_event_sources.SnsEventSource(
                 topic=self.request_topic,
                 filter_policy=sns_filter_policy,
-                # dead_letter_queue=self.dlq,
             )
         )

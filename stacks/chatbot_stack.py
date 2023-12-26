@@ -111,7 +111,6 @@ class ChatBotStack(Stack):
         result_handler.add_event_source(
             aws_lambda_event_sources.SnsEventSource(
                 topic=self.result_topic,
-                # dead_letter_queue=result_dlq,
             )
         )
         aws_ssm.StringParameter(
@@ -230,22 +229,6 @@ class ChatBotStack(Stack):
             comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
         )
 
-        # result_handler_error_alarm = aws_cloudwatch.Alarm(
-        #     self,
-        #     "ResultProcessingHandlerLambdaErrors",
-        #     alarm_name="ResultProcessingHandlerLambdaErrors",
-        #     metric=result_handler.metric_errors(),
-        #     threshold=1,
-        #     evaluation_periods=1,
-        #     datapoints_to_alarm=1,
-        #     treat_missing_data=aws_cloudwatch.TreatMissingData.NOT_BREACHING,
-        #     alarm_description="Alarm when ResultProcessingHandler lambda has errors",
-        #     comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_OR_EQUAL_TO_THRESHOLD,
-        # )
-
         bot_handler_error_alarm.add_alarm_action(
             aws_cloudwatch_actions.SnsAction(alarm_topic)
         )
-        # result_handler_error_alarm.add_alarm_action(
-        #     aws_cloudwatch_actions.SnsAction(alarm_topic)
-        # )
