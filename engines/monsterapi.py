@@ -56,7 +56,8 @@ def ask(
             "response": escape_markdown_v2(response["message"]),
             "engine": engine_type,
         }
-        sqs.send_message(QueueUrl=results_queue, MessageBody=err_message)
+        sns = boto3.session.Session().client("sns")
+        sns.publish(TopicArn=result_topic, Message=json.dumps(err_message))
         return
 
     process_id = response_body["process_id"]
@@ -65,8 +66,7 @@ def ask(
 
 
 token = read_ssm_param(param_name="MONSTERAPI_TOKEN")
-results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
-sqs = boto3.session.Session().client("sqs")
+result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
 
 def __process_payload(payload: Any, request_id: str) -> None:
     user_id = payload["user_id"]
@@ -79,7 +79,8 @@ def __process_payload(payload: Any, request_id: str) -> None:
     question = payload["text"]
     if "/ping" in question:
         payload["response"] = "pong"
-        sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+        sns = boto3.session.Session().client("sns")
+        sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
         return
 
     if "command" in payload["type"]:

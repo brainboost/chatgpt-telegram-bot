@@ -14,9 +14,9 @@ logging.getLogger().setLevel("INFO")
 engine_type = "llama"
 fetch_url = "https://api.monsterapi.ai/v1/status/"
 
-results_queue = read_ssm_param(param_name="RESULTS_SQS_QUEUE_URL")
+result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
+sns = boto3.session.Session().client("sns")
 token = read_ssm_param(param_name="MONSTERAPI_TOKEN")
-sqs = boto3.session.Session().client("sqs")
 
 headers = {
     "authorization": f"Bearer {token}",
@@ -81,5 +81,5 @@ def callback_handler(event, context) -> None:
                 f"Error on saving conversation_id: {process_id}, request_id:{process_id}, payload: {payload}",
                 exc_info=e,
             )
-    logging.info(payload)
-    sqs.send_message(QueueUrl=results_queue, MessageBody=json.dumps(payload))
+    # logging.info(payload)
+    sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
