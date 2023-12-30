@@ -63,6 +63,7 @@ logging.info(f"admins:{admins}")
 
 # Telegram commands
 
+
 async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if (
         update.effective_user is None
@@ -387,8 +388,11 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
         config = user_config.read(user_id)
         await __process_text(update, context, config)
     except Exception:
-        logging.error(msg="Exception occured during processing of the voice message", 
-        exc_info=context.error)
+        logging.error(
+            msg="Exception occured during processing of the voice message",
+            exc_info=context.error,
+        )
+
 
 # @send_typing_action
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -409,25 +413,26 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         file = await bot.get_file(file_id)
         path = await upload_to_s3(file, s3_bucket, s3_prefix)
         logging.info(f"File uploaded {path}")
+        user_id = int(update.effective_user.id)
+        config = user_config.read(user_id)
+        envelop = {
+            "type": "text",
+            "user_id": user_id,
+            "username": update.effective_user.name,
+            "update_id": update.update_id,
+            "message_id": update.effective_message.id,
+            "text": caption,
+            "chat_id": update.effective_chat.id,
+            "timestamp": update.effective_message.date.timestamp(),
+            "config": config,
+            "file": path,
+        }
+        await __send_envelop(envelop, json.dumps(config["engines"]))
     except Exception:
-        logging.error(msg="Exception occured during processing of the picture", 
-        exc_info=context.error)
-    
-    user_id = int( update.effective_user.id)
-    config = user_config.read(user_id)
-    envelop = {
-        "type": "text",
-        "user_id": user_id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": caption,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-        "file": path,
-    }
-    __send_envelop(envelop, json.dumps(config["engines"]))
+        logging.error(
+            msg="Exception occured during processing of the picture",
+            exc_info=context.error,
+        )
 
 
 async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -443,30 +448,31 @@ async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     file_id = attachment.file_id
     logging.info(file_id)
     s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
-    s3_prefix = f"att/{attachment.file_unique_id}-{attachment.file_name}"
+    # s3_prefix = f"att/{attachment.file_unique_id}-{attachment.file_name}"
     try:
         file = await bot.get_file(file_id)
-        path = await upload_to_s3(file, s3_bucket, s3_prefix)
+        path = await upload_to_s3(file, s3_bucket, "att", attachment.file_name)
         logging.info(f"File uploaded {path}")
+        user_id = int(update.effective_user.id)
+        config = user_config.read(user_id)
+        envelop = {
+            "type": "text",
+            "user_id": user_id,
+            "username": update.effective_user.name,
+            "update_id": update.update_id,
+            "message_id": update.effective_message.id,
+            "text": caption,
+            "chat_id": update.effective_chat.id,
+            "timestamp": update.effective_message.date.timestamp(),
+            "config": config,
+            "file": path,
+        }
+        await __send_envelop(envelop, json.dumps(config["engines"]))
     except Exception:
-        logging.error(msg="Exception occured during processing of the attachment", 
-        exc_info=context.error)
-    
-    user_id = int(update.effective_user.id)
-    config = user_config.read(user_id)
-    envelop = {
-        "type": "text",
-        "user_id": user_id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": caption,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-        "file": path,
-    }
-    __send_envelop(envelop, json.dumps(config["engines"]))
+        logging.error(
+            msg="Exception occured during processing of the attachment",
+            exc_info=context.error,
+        )
 
 
 async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -479,8 +485,10 @@ async def process_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         config = user_config.read(user_id)
         await __process_text(update, context, config)
     except Exception:
-        logging.error(msg="Exception occured during processing of the message", 
-        exc_info=context.error)
+        logging.error(
+            msg="Exception occured during processing of the message",
+            exc_info=context.error,
+        )
 
 
 @send_typing_action
@@ -501,7 +509,7 @@ async def __process_text(
         "timestamp": update.effective_message.date.timestamp(),
         "config": config,
     }
-    __send_envelop(envelop, json.dumps(config["engines"]))
+    await __send_envelop(envelop, json.dumps(config["engines"]))
 
 
 @send_typing_action
@@ -522,7 +530,7 @@ async def __process_translation(
         "timestamp": update.effective_message.date.timestamp(),
         "languages": lang.upper(),
     }
-    __send_envelop(envelop, json.dumps("deepl"))
+    await __send_envelop(envelop, json.dumps("deepl"))
 
 
 async def __process_images(
@@ -548,13 +556,10 @@ async def __process_images(
         "config": config,
     }
     logging.info(envelop)
-    __send_envelop(envelop, img_type)
+    await __send_envelop(envelop, img_type)
 
 
-async def __send_envelop(
-    envelop: Any,
-    engines: str
-    ) -> None:
+async def __send_envelop(envelop: Any, engines: str) -> None:
     try:
         sns.publish(
             TopicArn=sns_topic,
@@ -613,9 +618,13 @@ async def _main(event):
         fallbacks=[CommandHandler("cancel", tr_cancel)],
     )
     app.add_handler(conv_handler)
-    app.add_handler(MessageHandler(filters=filters.VOICE, callback=process_voice_message))
+    app.add_handler(
+        MessageHandler(filters=filters.VOICE, callback=process_voice_message)
+    )
     app.add_handler(MessageHandler(filters=filters.PHOTO, callback=process_photo))
-    app.add_handler(MessageHandler(filters=filters.ATTACHMENT, callback=process_attachment))
+    app.add_handler(
+        MessageHandler(filters=filters.ATTACHMENT, callback=process_attachment)
+    )
     app.add_handler(MessageHandler(filters=filters.ALL, callback=process_message))
 
     try:
