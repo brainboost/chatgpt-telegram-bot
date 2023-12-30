@@ -2,7 +2,8 @@ import json
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, Optional
+from urllib.parse import urlparse
 
 import boto3
 from curl_cffi import requests
@@ -50,6 +51,26 @@ def process_command(input: str, context: UserContext) -> None:
     logging.error(f"Unknown command {command}")
 
 
+def upload_attachment(s3_uri: str) -> Optional[str]:
+    url = "https://claude.ai/api/convert_document"
+    content_type = "application/octet-stream"
+    s3_bucket, file_name = urlparse(s3_uri).netloc, urlparse(s3_uri).path[1:]
+    s3_client = boto3.client("s3")
+    data = None
+    logging.info(f"Downloading file {file_name} from s3 bucket {s3_bucket}")
+    s3_client.download_fileobj(Bucket=s3_bucket, Key=file_name, Fileobj=data)
+    files = {
+        "file": (file_name, data, content_type),
+        "orgUuid": (None, organization_id),
+    }
+    response = requests.post(url, headers=headers, files=files)
+    logging.info(f"Uploading  file {file_name}, response '{response.status_code}'")
+    if response.status_code == 200:
+        return response.json()
+    else:
+        return None
+
+
 def ask(text: str, context: UserContext, attachment=None):
     if "/ping" in text:
         return "pong"
@@ -59,14 +80,13 @@ def ask(text: str, context: UserContext, attachment=None):
     context.conversation_id = conversation_uuid
     __set_title(prompt=text, conversation_id=conversation_uuid)
     attachments = []
-    # if attachment:
-    #     attachment_response = upload_attachment(attachment)
-    #     if attachment_response:
-    #         attachments = [attachment_response]
-    #     else:
-    #         return {"File upload failed. Please try again."}
-    if not attachment:
-        attachments = []
+    if attachment:
+        logging.info(f"Uploading attachment {attachment}")
+        attachment_response = upload_attachment(attachment)
+        if attachment_response:
+            attachments = [attachment_response]
+        else:
+            logging.error("File upload failed: {}".format(attachment))
     payload = json.dumps(
         {
             "completion": {
@@ -188,14 +208,16 @@ def __process_payload(payload: Any, request_id: str) -> None:
     if "command" in payload["type"]:
         process_command(input=payload["text"], context=user_context)
         return
-
-    response = ask(payload["text"], context=user_context)
+    response = ask(
+        text=payload["text"], context=user_context, attachment=payload["files"]
+    )
     user_context.save_conversation(
         conversation={"request": payload["text"], "response": response},
     )
     payload["response"] = encode_message(response)
     payload["engine"] = engine_type
     sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
+
 
 def sns_handler(event, context):
     """AWS SNS event handler"""
@@ -204,6 +226,7 @@ def sns_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
         __process_payload(payload, request_id)
+
 
 # if __name__ == "__main__":
 #     put_request("does DALL-E uses stable diffusion?")

@@ -30,7 +30,9 @@ def send_action(action):
                 chat_id=update.effective_chat.id, action=action
             )
             return await func(update, context, *args, **kwargs)
+
         return command_func
+
     return decorator
 
 
@@ -39,7 +41,7 @@ send_typing_action = send_action(constants.ChatAction.TYPING)
 
 def restricted(allowed_roles: list):
     """Restricts a handler to allow only listed users."""
-    
+
     def decorator(func):
         @wraps(func)
         async def wrapped(update: Update, context, *args, **kwargs):
@@ -50,11 +52,13 @@ def restricted(allowed_roles: list):
                 logging.error(f"Unauthorized access denied for {user_id}.")
                 return
             return await func(update, context, *args, **kwargs)
+
         return wrapped
+
     return decorator
 
 
-async def generate_transcription(file):
+async def generate_transcription(file) -> str:
     transcribe_client = boto3.client("transcribe")
     message_id = str(uuid.uuid4())
     s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
@@ -71,7 +75,7 @@ async def generate_transcription(file):
     while job_status != "COMPLETED":
         status = transcribe_client.get_transcription_job(TranscriptionJobName=job_name)
         job_status = status["TranscriptionJob"]["TranscriptionJobStatus"]
-    transcript = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"] # type: ignore
+    transcript = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]  # type: ignore
     logging.info(transcript)
     output_location = f"/tmp/output_{message_id}.json"
     wget.download(transcript, output_location)
@@ -79,7 +83,8 @@ async def generate_transcription(file):
         output = json.load(f)
     return output["results"]["transcripts"][0]["transcript"]
 
-async def upload_to_s3(file: File, s3_bucket: str, s3_prefix: str):
+
+async def upload_to_s3(file: File, s3_bucket: str, s3_prefix: str) -> str:
     s3_client = boto3.client("s3")
     local_path = f"/tmp/{s3_prefix}"
     logging.info(f"Saving file to {local_path}")

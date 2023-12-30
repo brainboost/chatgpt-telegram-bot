@@ -404,7 +404,7 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logging.info(photo)
     file_id = photo.file_id
     logging.info(file_id)
-    s3_prefix = f"{photo.file_unique_id}.jpg"
+    s3_prefix = f"att/{photo.file_unique_id}.jpg"
     try:
         file = await bot.get_file(file_id)
         path = await upload_to_s3(file, s3_bucket, s3_prefix)
@@ -425,7 +425,7 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "chat_id": update.effective_chat.id,
         "timestamp": update.effective_message.date.timestamp(),
         "config": config,
-        "attachment": path,
+        "file": path,
     }
     __send_envelop(envelop, json.dumps(config["engines"]))
 
@@ -443,7 +443,7 @@ async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     file_id = attachment.file_id
     logging.info(file_id)
     s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
-    s3_prefix = f"{attachment.file_unique_id}-{attachment.file_name}"
+    s3_prefix = f"att/{attachment.file_unique_id}-{attachment.file_name}"
     try:
         file = await bot.get_file(file_id)
         path = await upload_to_s3(file, s3_bucket, s3_prefix)
@@ -464,7 +464,7 @@ async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "chat_id": update.effective_chat.id,
         "timestamp": update.effective_message.date.timestamp(),
         "config": config,
-        "attachment": path,
+        "file": path,
     }
     __send_envelop(envelop, json.dumps(config["engines"]))
 
