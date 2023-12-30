@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
 import boto3
 import boto3.session
@@ -427,6 +427,7 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "config": config,
             "file": path,
         }
+        logging.info(envelop)
         await __send_envelop(envelop, json.dumps(config["engines"]))
     except Exception:
         logging.error(
@@ -448,7 +449,6 @@ async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
     file_id = attachment.file_id
     logging.info(file_id)
     s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
-    # s3_prefix = f"att/{attachment.file_unique_id}-{attachment.file_name}"
     try:
         file = await bot.get_file(file_id)
         path = await upload_to_s3(file, s3_bucket, "att", attachment.file_name)
@@ -467,6 +467,7 @@ async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "config": config,
             "file": path,
         }
+        logging.info(envelop)
         await __send_envelop(envelop, json.dumps(config["engines"]))
     except Exception:
         logging.error(
@@ -530,7 +531,7 @@ async def __process_translation(
         "timestamp": update.effective_message.date.timestamp(),
         "languages": lang.upper(),
     }
-    await __send_envelop(envelop, json.dumps("deepl"))
+    await __send_envelop(envelop, "deepl")
 
 
 async def __process_images(
@@ -556,17 +557,23 @@ async def __process_images(
         "config": config,
     }
     logging.info(envelop)
-    await __send_envelop(envelop, img_type)
+    await __send_envelop(envelop)
 
 
-async def __send_envelop(envelop: Any, engines: str) -> None:
+async def __send_envelop(envelop: Any, engines: Optional[str] = None) -> None:
+    logging.info(
+        "Sending envelop to topic {} with engines {}".format(sns_topic, engines)
+    )
+    attrs = {
+        "type": {"DataType": "String", "StringValue": envelop["type"]},
+    }
+    if engines:
+        attrs["engines"] = {"DataType": "String.Array", "StringValue": engines}
     try:
         sns.publish(
             TopicArn=sns_topic,
             Message=json.dumps(envelop),
-            MessageAttributes={
-                "type": {"DataType": "String", "StringValue": engines},
-            },
+            MessageAttributes=attrs,
         )
     except Exception as e:
         logging.error("Can't send envelop to request topic", exc_info=e)

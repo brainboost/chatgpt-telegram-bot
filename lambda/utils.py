@@ -87,13 +87,11 @@ async def generate_transcription(file) -> str:
 async def upload_to_s3(
     file: File, s3_bucket: str, s3_prefix: str, file_name: str
 ) -> str:
-    s3_client = boto3.client("s3")
     local_path = f"/tmp/{file_name}"
     logging.info(f"Saving file to {local_path}")
     await file.download_to_drive(local_path)
     logging.info(f"Uploading '{local_path}' to s3 {s3_bucket}/{s3_prefix}/{file_name}")
-    s3_client.upload_file(local_path, s3_bucket, f"{s3_prefix}/{file_name}")
-    logging.info("Removing local file...")
+    boto3.client("s3").upload_file(local_path, s3_bucket, f"{s3_prefix}/{file_name}")
     os.remove(local_path)
     return f"s3://{s3_bucket}/{s3_prefix}/{file_name}"
 
