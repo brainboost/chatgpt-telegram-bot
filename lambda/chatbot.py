@@ -261,14 +261,18 @@ def __start_redrive_dlq() -> Any:
                                 topic = record["Sns"]["TopicArn"]
                                 payload = record["Sns"]["Message"]
                                 logging.info(payload)
-                                attrs = {}
-                                for key, value in record["Sns"][
-                                    "MessageAttributes"
-                                ].items():
-                                    attrs[key] = {
-                                        "DataType": value["Type"],
-                                        "StringValue": value["Value"],
-                                    }
+                                attributes = record["Sns"]["MessageAttributes"]
+                                attrs = {
+                                    "type": {
+                                        "DataType": "String",
+                                        "StringValue": attributes["type"]["Value"],
+                                    },
+                                    "engines": {
+                                        "DataType": "String.Array",
+                                        "StringValue": attributes["engines"]["Value"],
+                                    },
+                                }
+                                logging.info(attrs)
                                 resp = sns.publish(
                                     TopicArn=topic,
                                     MessageStructure="json",
@@ -394,9 +398,9 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
         )
 
 
-# @send_typing_action
+@send_typing_action
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logging.info("File upload in 'uploads'")
+    logging.info("File upload in 'process_photo'")
     if update.message.photo is None:
         return
     logging.info(update.message)
@@ -408,10 +412,9 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     logging.info(photo)
     file_id = photo.file_id
     logging.info(file_id)
-    s3_prefix = f"att/{photo.file_unique_id}.jpg"
     try:
         file = await bot.get_file(file_id)
-        path = await upload_to_s3(file, s3_bucket, s3_prefix)
+        path = await upload_to_s3(file, s3_bucket, "att", f"{photo.file_unique_id}.jpg")
         logging.info(f"File uploaded {path}")
         user_id = int(update.effective_user.id)
         config = user_config.read(user_id)
@@ -427,12 +430,12 @@ async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             "config": config,
             "file": path,
         }
-        logging.info(envelop)
+        # logging.info(envelop)
         await __send_envelop(envelop, json.dumps(config["engines"]))
-    except Exception:
+    except Exception as e:
         logging.error(
             msg="Exception occured during processing of the picture",
-            exc_info=context.error,
+            exc_info=e,
         )
 
 
@@ -467,7 +470,7 @@ async def process_attachment(update: Update, context: ContextTypes.DEFAULT_TYPE)
             "config": config,
             "file": path,
         }
-        logging.info(envelop)
+        # logging.info(envelop)
         await __send_envelop(envelop, json.dumps(config["engines"]))
     except Exception:
         logging.error(
@@ -595,7 +598,7 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["bing", "chatgpt", "bard", "llama", "claude"],
+            ["bing", "chatgpt", "bard", "llama", "claude", "gemini"],
             engines,
             filters=filters.COMMAND,
         )

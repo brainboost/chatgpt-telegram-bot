@@ -75,15 +75,15 @@ def upload_attachment(s3_uri: str) -> Optional[str]:
         parsed.path.split("/")[-1],
     )
     logging.info(f"Downloading file {file_name} from s3 bucket {s3_bucket}")
-    # tmp_file = f"/tmp/{file_name}"
-    tmp_file = "/tmp/Regulamin_promocji.pdf"
-    # boto3.client("s3").download_file(Bucket=s3_bucket, Key=s3_path, Filename=tmp_file)
+    tmp_file = f"/tmp/{file_name}"
+    # tmp_file = "/tmp/Regulamin_promocji.pdf"
     session = boto3.session.Session()
-    session.client("s3").download_file(
-        Bucket="chatbotstack-s3-bucket-dev-tmp",
-        Key="att/Regulamin_promocji.pdf",
-        Filename=tmp_file,
-    )
+    session.client("s3").download_file(Bucket=s3_bucket, Key=s3_path, Filename=tmp_file)
+    # session.client("s3").download_file(
+    #     Bucket="chatbotstack-s3-bucket-dev-tmp",
+    #     Key="att/Regulamin_promocji.pdf",
+    #     Filename=tmp_file,
+    # )
     files = {
         "file": (file_name, open(tmp_file, "rb"), get_content_type(tmp_file)),
         "orgUuid": (None, organization_id),
@@ -109,14 +109,17 @@ def ask(text: str, context: UserContext, attachment=None):
     __set_conversation(conversation_id=conversation_uuid)
     context.conversation_id = conversation_uuid
     __set_title(prompt=text, conversation_id=conversation_uuid)
+    # attachment_response = upload_attachment(attachment)
+    # logging.info(attachment_response)
+    # attachments = [attachment_response]
+    # if attachment:
+    #     logging.info(f"Uploading attachment {attachment}")
+    #     attachment_response = upload_attachment(attachment)
+    #     if attachment_response:
+    #         attachments = [attachment_response]
+    #     else:
+    #         logging.error("File upload failed: {}".format(attachment))
     attachments = []
-    if attachment:
-        logging.info(f"Uploading attachment {attachment}")
-        attachment_response = upload_attachment(attachment)
-        if attachment_response:
-            attachments = [attachment_response]
-        else:
-            logging.error("File upload failed: {}".format(attachment))
     payload = json.dumps(
         {
             "completion": {
@@ -259,4 +262,4 @@ def sns_handler(event, context):
 
 
 # if __name__ == "__main__":
-#     put_request("does DALL-E uses stable diffusion?")
+#     ask("a ile kosztuje ta usługa miesięczne?")
