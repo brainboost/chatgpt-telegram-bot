@@ -1,10 +1,14 @@
 import json
 import logging
+import os
 import re
 import uuid
-from typing import Any
+from typing import Any, Optional
+from urllib.parse import urlparse
 
 import boto3
+import boto3.session
+import requests as req
 from curl_cffi import requests
 
 from .common_utils import (
@@ -50,6 +54,53 @@ def process_command(input: str, context: UserContext) -> None:
     logging.error(f"Unknown command {command}")
 
 
+def get_content_type(file_path):
+    extension = os.path.splitext(file_path)[-1].lower()
+    if extension == ".pdf":
+        return "application/pdf"
+    elif extension == ".txt":
+        return "text/plain"
+    elif extension == ".csv":
+        return "text/csv"
+    else:
+        return "application/octet-stream"
+
+
+def upload_attachment(s3_uri: str) -> Optional[str]:
+    url = "https://claude.ai/api/convert_document"
+    parsed = urlparse(s3_uri)
+    s3_bucket, s3_path, file_name = (
+        parsed.netloc,
+        parsed.path,
+        parsed.path.split("/")[-1],
+    )
+    logging.info(f"Downloading file {file_name} from s3 bucket {s3_bucket}")
+    tmp_file = f"/tmp/{file_name}"
+    # tmp_file = "/tmp/Regulamin_promocji.pdf"
+    session = boto3.session.Session()
+    session.client("s3").download_file(Bucket=s3_bucket, Key=s3_path, Filename=tmp_file)
+    # session.client("s3").download_file(
+    #     Bucket="chatbotstack-s3-bucket-dev-tmp",
+    #     Key="att/Regulamin_promocji.pdf",
+    #     Filename=tmp_file,
+    # )
+    files = {
+        "file": (file_name, open(tmp_file, "rb"), get_content_type(tmp_file)),
+        "orgUuid": (None, organization_id),
+    }
+    response = req.post(url, headers=headers, files=files)
+    logging.info(f"Uploaded file {file_name}, response '{response.status_code}'")
+    os.remove(tmp_file)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        logging.error(f"POST upload returned {response.status_code} {response.reason}")
+        logging.info(response.content.decode("utf-8"))
+        logging.info(headers)
+        logging.info(files)
+        return None
+
+
 def ask(text: str, context: UserContext, attachment=None):
     if "/ping" in text:
         return "pong"
@@ -58,15 +109,17 @@ def ask(text: str, context: UserContext, attachment=None):
     __set_conversation(conversation_id=conversation_uuid)
     context.conversation_id = conversation_uuid
     __set_title(prompt=text, conversation_id=conversation_uuid)
-    attachments = []
+    # attachment_response = upload_attachment(attachment)
+    # logging.info(attachment_response)
+    # attachments = [attachment_response]
     # if attachment:
+    #     logging.info(f"Uploading attachment {attachment}")
     #     attachment_response = upload_attachment(attachment)
     #     if attachment_response:
     #         attachments = [attachment_response]
     #     else:
-    #         return {"File upload failed. Please try again."}
-    if not attachment:
-        attachments = []
+    #         logging.error("File upload failed: {}".format(attachment))
+    attachments = []
     payload = json.dumps(
         {
             "completion": {
@@ -188,14 +241,16 @@ def __process_payload(payload: Any, request_id: str) -> None:
     if "command" in payload["type"]:
         process_command(input=payload["text"], context=user_context)
         return
-
-    response = ask(payload["text"], context=user_context)
+    response = ask(
+        text=payload["text"], context=user_context, attachment=payload.get("file", None)
+    )
     user_context.save_conversation(
         conversation={"request": payload["text"], "response": response},
     )
     payload["response"] = encode_message(response)
     payload["engine"] = engine_type
     sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
+
 
 def sns_handler(event, context):
     """AWS SNS event handler"""
@@ -205,5 +260,6 @@ def sns_handler(event, context):
         payload = json.loads(record["Sns"]["Message"])
         __process_payload(payload, request_id)
 
+
 # if __name__ == "__main__":
-#     put_request("does DALL-E uses stable diffusion?")
+#     ask("a ile kosztuje ta usługa miesięczne?")

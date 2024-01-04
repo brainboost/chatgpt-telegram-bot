@@ -230,7 +230,7 @@ class EnginesStack(Stack):
         )
 
         error_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(self.alarm_topic))
-        
+
         callback_lambda_url = api_callback.add_function_url(
             auth_type=_lambda.FunctionUrlAuthType.NONE,
             cors={
@@ -300,6 +300,21 @@ class EnginesStack(Stack):
                 ),
             },
             handler=f"{ASSET_PATH}.claude.sns_handler",
+        )
+
+        # Gemini
+
+        self.__create_engine(
+            engine_name="Gemini",
+            sns_filter_policy={
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
+                "engines": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["gemini"]
+                ),
+            },
+            handler=f"{ASSET_PATH}.gemini.sns_handler",
         )
 
     def __create_engine(

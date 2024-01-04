@@ -2,6 +2,7 @@ git+https://github.com/brainboost/EdgeGPT.git
 git+https://github.com/brainboost/ChatGPT.git
 git+https://github.com/brainboost/BingImageCreator.git
 bardapi
+google-generativeai
 deepl
 websockets
 requests

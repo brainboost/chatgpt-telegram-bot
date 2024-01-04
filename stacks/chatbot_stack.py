@@ -37,7 +37,7 @@ class ChatBotStack(Stack):
                     "service-role/AWSLambdaBasicExecutionRole"
                 ),
                 aws_iam.ManagedPolicy.from_aws_managed_policy_name(
-                    "AmazonS3ReadOnlyAccess"
+                    "AmazonS3FullAccess"
                 ),
                 aws_iam.ManagedPolicy.from_aws_managed_policy_name(
                     "AmazonSSMFullAccess"
@@ -75,7 +75,11 @@ class ChatBotStack(Stack):
             encryption=aws_s3.BucketEncryption.S3_MANAGED,
             versioned=True,
         )
-
+        bucket.add_lifecycle_rule(id="expiration-rule",
+            object_size_greater_than=1024 * 100,
+            noncurrent_version_expiration=Duration.days(15),
+            enabled=True,
+        )
         result_dlq = aws_sqs.Queue(
             self,
             "Result-Queue-DLQ",
