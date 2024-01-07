@@ -52,7 +52,7 @@ SV    Swedish
 TR    Turkish
 UA    Ukrainian"""  # noqa: E501
     elif text.endswith("imagine"):
-        message = """\/imagine \- Creating images using *DALL\-E 2* AI engine\. Usage: \/imagine PROMPT
+        message = """\/imagine \- Creating images using *DALL\-E* AI engine\. Usage: \/imagine PROMPT
 Example: \/imagine Cute kitty plays with yarn ball"""  # noqa: E501
     elif text.endswith("ideogram"):
         message = """\/ideogram \- Creating images and typographics using *Ideogram.ai* engine\. Usage: \/imagine PROMPT
@@ -69,13 +69,14 @@ Available values are:
     \• *precise*\. This mode is for when you want to get precise and accurate answers from me\. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning\. I can also generate images based on your specifications\. I use a concise and formal tone in this mode\."""  # noqa: E501
     elif text.endswith("engines"):
         message = """\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
-Example: \/engines bing,bard,chatgpt,llama \- all AI engines will respond simultaneously\.
+Example: \/engines bing,bard,chatgpt,llama,claude \- all listed engines will respond simultaneously\.
 This command persist it's value in the user configuration, so it will work until any of following commands applied: 
     \• \/bing
     \• \/bard
     \• \/chatgpt
     \• \/llama
     \• \/claude
+    \• \/gemini
     \• \/engines"""  # noqa: E501
     else:
         message = """If you need help with bot command, please type the command  
@@ -91,13 +92,14 @@ Supported commands are:
 
 \/help \- Get help on a command\. Usage: \/help COMMAND
 \/tr \- Translate text to other language\(s\) using DeepL API
-\/imagine \- Generate images using DALL\-E 2 engine
+\/imagine \- Generate images using DALL\-E engine
 \/ideogram \- Generate images using Ideogram.ai engine
 \/bing \- Switch answers to Bing AI model
 \/bard \- Switch answers to Google Bard AI model
 \/chatgpt \- Switch answers to OpenAI ChatGPT model
 \/llama \- Switch answers to Meta LLama2 AI model
 \/claude \- Switch answers to Anthropic Claude.ai AI model
+\/gemini \- Switch answers to Google Gemini AI model
 \/engines \- Activates multiple AI engines at once, comma separated list
 \/creative \- Set tone of responses to more creative on Bing model \(Default\)
 \/balanced \- Set tone of responses to more balanced

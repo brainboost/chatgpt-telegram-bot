@@ -62,8 +62,7 @@ async def generate_transcription(file) -> str:
     transcribe_client = boto3.client("transcribe")
     message_id = str(uuid.uuid4())
     s3_bucket = read_ssm_param(param_name="BOT_S3_BUCKET")
-    s3_prefix = os.path.join(message_id, "voice_file.ogg")
-    remote_s3_path = await upload_to_s3(file, s3_bucket, s3_prefix)
+    remote_s3_path = await upload_to_s3(file, s3_bucket, "voice", f"{message_id}.ogg")
     job_name = f"transcription_job_{message_id}"
     transcribe_client.start_transcription_job(
         TranscriptionJobName=job_name,
