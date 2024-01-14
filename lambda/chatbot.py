@@ -379,6 +379,7 @@ async def tr_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 # Telegram handlers
 
 
+@send_typing_action
 async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info("voice message in 'process_voice_message'")
     voice_message = update.message.voice
@@ -387,23 +388,39 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
     file = await bot.get_file(file_id)
     transcript_msg = await generate_transcription(file)
     logging.info(transcript_msg)
+    await update.effective_message.reply_text(
+        text=escape_markdown_v2(transcript_msg),
+        disable_notification=True,
+        parse_mode=constants.ParseMode.MARKDOWN_V2,
+    )
     try:
         user_id = int(update.effective_message.from_user.id)
         config = user_config.read(user_id)
-        await __process_text(update, context, config)
-    except Exception:
+        envelop = {
+            "type": "text",
+            "user_id": user_id,
+            "username": update.effective_user.name,
+            "update_id": update.update_id,
+            "message_id": update.effective_message.id,
+            "text": transcript_msg,
+            "chat_id": update.effective_chat.id,
+            "timestamp": update.effective_message.date.timestamp(),
+            "config": config,
+        }
+        await __send_envelop(envelop, json.dumps(config["engines"]))
+    except Exception as e:
         logging.error(
-            msg="Exception occured during processing of the voice message",
-            exc_info=context.error,
+            msg="Exception occured during voice message processing",
+            exc_info=e,
         )
 
 
 @send_typing_action
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logging.info("File upload in 'process_photo'")
     if update.message.photo is None:
         return
-    logging.info(update.message)
+    logging.info("File upload in 'process_photo'")
+    # logging.info(update.message)
     caption = update.message.caption
     if bot.name not in caption and "group" in update.message.chat.type:
         return

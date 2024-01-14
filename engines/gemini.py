@@ -2,9 +2,10 @@ import json
 import logging
 import os
 import re
+import textwrap
 import uuid
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import boto3
@@ -23,6 +24,7 @@ logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 engine_type = "gemini"
+safety_level = "BLOCK_ONLY_HIGH"
 
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
@@ -67,11 +69,12 @@ def ask(
     if "/ping" in text:
         return "pong"
 
+    if context.conversation_id is None:
+        context.conversation_id = str(uuid.uuid4())
+    logging.info(f"conversation_id; '{context.conversation_id}'")
     if file_path:
-        logging.info("Downloading image")
+        logging.info(f"Downloading image '{file_path}'")
         image = get_image(file_path)
-
-        logging.info("Asking Gemini...")
         response = _vision_model.generate_content(
             [
                 Part(
@@ -85,20 +88,11 @@ def ask(
             stream=True,
         )
     else:
-        if context.conversation_id is None:
-            context.conversation_id = str(uuid.uuid4())
-
-        # conversation.append(
-        #     Content.to_json(Content(role="user", parts=[Part(text=text)]))
-        # )
-
-        logging.info("Asking Gemini...")
         response = _model.generate_content(
             # [Content.from_json(content) for content in conversation],
             text,
             stream=True,
         )
-
     answer = ""
     for chunk in response:
         if len(chunk.parts) < 1 or "text" not in chunk.parts[0]:
@@ -107,13 +101,13 @@ def ask(
     return __as_markdown(answer)
 
 
-def create(conversation_id: Optional[str]) -> None:
+def create() -> None:
     """Initialize model API https://ai.google.dev/api"""
 
     logging.info("Create chatbot instance")
     proxy_url = read_ssm_param(param_name="SOCKS5_URL")
     os.environ["http_proxy"] = proxy_url
-    logging.info(f"Initializing Google AI module with proxy {proxy_url}")
+    logging.info(f"Initializing Google AI module with proxy '{proxy_url}'")
     generation_config = {
         "temperature": 0.8,
         "top_p": 1,
@@ -121,18 +115,18 @@ def create(conversation_id: Optional[str]) -> None:
         "max_output_tokens": 4096,
     }
     safety_settings = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": safety_level},
         {
             "category": "HARM_CATEGORY_HATE_SPEECH",
-            "threshold": "BLOCK_ONLY_HIGH",
+            "threshold": safety_level,
         },
         {
             "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            "threshold": "BLOCK_ONLY_HIGH",
+            "threshold": safety_level,
         },
         {
             "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-            "threshold": "BLOCK_ONLY_HIGH",
+            "threshold": safety_level,
         },
     ]
     global _model
@@ -152,7 +146,6 @@ def create(conversation_id: Optional[str]) -> None:
     client_manager.configure(api_key=api_key)
     _model._client = client_manager.get_default_client("generative")
     _vision_model._client = client_manager.get_default_client("generative")
-    logging.info("Google AI module initialized")
 
 
 def __as_markdown(input: str) -> str:
@@ -174,7 +167,9 @@ def __process_payload(payload: Any, request_id: str) -> None:
         process_command(input=payload["text"], context=user_context)
         return
 
-    create(conversation_id=user_context.conversation_id)
+    if not (_model and _vision_model):
+        create()
+
     response = ask(
         text=payload["text"],
         file_path=payload.get("file", None),

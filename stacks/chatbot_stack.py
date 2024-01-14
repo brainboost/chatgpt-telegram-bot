@@ -60,6 +60,8 @@ class ChatBotStack(Stack):
                     "sqs:GetQueueAttributes",
                     "sqs:StartMessageMoveTask",
                     "sqs:ListMessageMoveTasks",
+                    "transcribe:StartTranscriptionJob",
+                    "transcribe:GetTranscriptionJob",
                 ],
                 resources=["*"],
             )
@@ -75,7 +77,8 @@ class ChatBotStack(Stack):
             encryption=aws_s3.BucketEncryption.S3_MANAGED,
             versioned=True,
         )
-        bucket.add_lifecycle_rule(id="expiration-rule",
+        bucket.add_lifecycle_rule(
+            id="expiration-rule",
             object_size_greater_than=1024 * 100,
             noncurrent_version_expiration=Duration.days(15),
             enabled=True,
