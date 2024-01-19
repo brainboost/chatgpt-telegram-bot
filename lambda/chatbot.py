@@ -266,12 +266,13 @@ def __start_redrive_dlq() -> Any:
                                     "type": {
                                         "DataType": "String",
                                         "StringValue": attributes["type"]["Value"],
-                                    },
-                                    "engines": {
+                                    }
+                                }
+                                if "engines" in attributes:
+                                    attrs["engines"] = {
                                         "DataType": "String.Array",
                                         "StringValue": attributes["engines"]["Value"],
-                                    },
-                                }
+                                    }
                                 logging.info(attrs)
                                 resp = sns.publish(
                                     TopicArn=topic,
@@ -551,7 +552,7 @@ async def __process_translation(
         "timestamp": update.effective_message.date.timestamp(),
         "languages": lang.upper(),
     }
-    await __send_envelop(envelop, "deepl")
+    await __send_envelop(envelop)
 
 
 async def __process_images(
