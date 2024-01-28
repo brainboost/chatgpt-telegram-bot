@@ -122,7 +122,8 @@ class EnginesStack(Stack):
                 ),
                 "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bing"]),
             },
-            handler=f"{ASSET_PATH}.bing.sns_handler",
+            handler=f"{ASSET_PATH}.copilot.sns_handler",
+            # handler=f"{ASSET_PATH}.bing.sns_handler",
         )
 
         # Bard

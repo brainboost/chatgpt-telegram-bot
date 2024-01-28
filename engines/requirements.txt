@@ -9,3 +9,4 @@ requests
 curl_cffi
 boto3
 pillow
+sydney-py

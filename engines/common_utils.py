@@ -26,6 +26,13 @@ def read_json_from_s3(bucket_name: str, file_name: str) -> Any:
     return json.loads(file_content)
 
 
+def json_cookies_to_header_string(cookies_json: Any):
+    cookie_pairs = []
+    for cookie_data in cookies_json:
+        cookie_pairs.append(f"{cookie_data['name']}={cookie_data['value']}")
+    return "; ".join(cookie_pairs)
+
+
 def save_to_s3(bucket_name: str, file_name: str, value: Any) -> None:
     s3 = boto3.client("s3")
     s3.put_object(Bucket=bucket_name, Key=file_name, Body=json.dumps(value))
