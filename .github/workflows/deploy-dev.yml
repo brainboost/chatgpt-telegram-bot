@@ -36,6 +36,6 @@ jobs:
       - name: Install CDK
         run: npm install -g aws-cdk 
       - name: Install dependencies
-        run: pip install -r requirements.txt -U 
+        run: pip install -r requirements.txt -U --force
       - name: Deploy stack
-        run: cdk deploy --all --require-approval never
+        run: cdk deploy --all --require-approval never --force

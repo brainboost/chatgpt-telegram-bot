@@ -1,6 +1,6 @@
-git+https://github.com/brainboost/EdgeGPT.git
 git+https://github.com/brainboost/ChatGPT.git
 git+https://github.com/brainboost/BingImageCreator.git
+EdgeGPT-plus
 bardapi
 google-generativeai
 deepl
@@ -8,5 +8,4 @@ websockets
 requests
 curl_cffi
 boto3
-pillow
 sydney-py
