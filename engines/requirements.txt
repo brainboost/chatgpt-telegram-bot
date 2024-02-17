@@ -6,6 +6,7 @@ google-generativeai
 deepl
 websockets
 requests
+requests_toolbelt
 curl_cffi
 boto3
 sydney-py

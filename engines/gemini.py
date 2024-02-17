@@ -15,7 +15,7 @@ from google.generativeai.client import (
     _ClientManager,
 )
 
-from .common_utils import encode_message, get_image, read_ssm_param
+from .common_utils import encode_message, get_s3_file, read_ssm_param
 from .user_context import UserContext
 
 logging.basicConfig()
@@ -54,7 +54,7 @@ def ask(
     logging.info(f"conversation_id; '{context.conversation_id}'")
     if file_path:
         logging.info(f"Downloading image '{file_path}'")
-        image = get_image(file_path, bucket_name)
+        image = get_s3_file(file_path, bucket_name)
         response = _vision_model.generate_content(
             [
                 Part(

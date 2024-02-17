@@ -10,7 +10,7 @@ from EdgeGPT.EdgeGPT import CONVERSATION_STYLE_TYPE, Chatbot
 from .common_utils import (
     encode_message,
     escape_markdown_v2,
-    get_image,
+    get_s3_file,
     read_json_from_s3,
     read_ssm_param,
 )
@@ -44,7 +44,7 @@ def ask(
     if "/ping" in text:
         return "pong"
 
-    imagePath = get_image(file_path, bucket_name)
+    imagePath = get_s3_file(file_path, bucket_name)
     logging.info(f"Got image path {imagePath}")
     response = asyncio.run(
         chatbot.ask(

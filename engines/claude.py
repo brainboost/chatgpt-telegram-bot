@@ -1,29 +1,30 @@
 import json
 import logging
 import os
-import re
+import time
 import uuid
-from typing import Any, Optional
-from urllib.parse import urlparse
+from pathlib import Path
+from typing import Any
 
 import boto3
 import boto3.session
-import requests as req
 from curl_cffi import requests
+from requests_toolbelt import MultipartEncoder
 
 from .common_utils import (
     encode_message,
     escape_markdown_v2,
+    get_s3_file,
     read_json_from_s3,
     read_ssm_param,
 )
+from .mime_types import mime_types
 from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 engine_type = "claude"
-
-
+request_timeout = 600
 base_url = "https://claude.ai"
 browser_version = "chrome110"
 headers = {
@@ -54,54 +55,42 @@ def process_command(input: str, context: UserContext) -> None:
     logging.error(f"Unknown command {command}")
 
 
-def get_content_type(file_path):
+def get_content_type(file_path) -> str:
     extension = os.path.splitext(file_path)[-1].lower()
-    if extension == ".pdf":
-        return "application/pdf"
-    elif extension == ".txt":
-        return "text/plain"
-    elif extension == ".csv":
-        return "text/csv"
-    else:
-        return "application/octet-stream"
+    return mime_types.get(extension, "application/octet-stream")
 
 
-def upload_attachment(s3_uri: str) -> Optional[str]:
-    url = "https://claude.ai/api/convert_document"
-    parsed = urlparse(s3_uri)
-    s3_bucket, s3_path, file_name = (
-        parsed.netloc,
-        parsed.path,
-        parsed.path.split("/")[-1],
+def upload_attachment(s3_uri: str) -> Any:
+    url = f"{base_url}/api/convert_document"
+    tmp_file = get_s3_file(s3_uri, bucket_name)
+    file_name = os.path.basename(tmp_file)
+    m = MultipartEncoder(
+        fields={
+            "file": (file_name, open(tmp_file, "rb"), get_content_type(tmp_file)),
+            "orgUuid": (None, organization_id),
+        }
     )
-    logging.info(f"Downloading file {file_name} from s3 bucket {s3_bucket}")
-    tmp_file = f"/tmp/{file_name}"
-    # tmp_file = "/tmp/Regulamin_promocji.pdf"
-    session = boto3.session.Session()
-    session.client("s3").download_file(Bucket=s3_bucket, Key=s3_path, Filename=tmp_file)
-    # session.client("s3").download_file(
-    #     Bucket="chatbotstack-s3-bucket-dev-tmp",
-    #     Key="att/Regulamin_promocji.pdf",
-    #     Filename=tmp_file,
-    # )
-    files = {
-        "file": (file_name, open(tmp_file, "rb"), get_content_type(tmp_file)),
-        "orgUuid": (None, organization_id),
-    }
-    response = req.post(url, headers=headers, files=files)
-    logging.info(f"Uploaded file {file_name}, response '{response.status_code}'")
-    os.remove(tmp_file)
+    req_headers = dict(headers)
+    req_headers["Content-Type"] = m.content_type
+    response = requests.post(
+        url,
+        headers=req_headers,
+        impersonate=browser_version,
+        data=m.to_string(),
+        timeout=request_timeout,
+    )
+    logging.info(f"Uploaded file {tmp_file}, response '{response.status_code}'")
+    # os.remove(tmp_file)
     if response.status_code == 200:
         return response.json()
     else:
         logging.error(f"POST upload returned {response.status_code} {response.reason}")
         logging.info(response.content.decode("utf-8"))
         logging.info(headers)
-        logging.info(files)
         return None
 
 
-def ask(text: str, context: UserContext, attachment=None):
+def ask(text: str, context: UserContext, attachments=None):
     if "/ping" in text:
         return "pong"
 
@@ -109,53 +98,50 @@ def ask(text: str, context: UserContext, attachment=None):
     __set_conversation(conversation_id=conversation_uuid)
     context.conversation_id = conversation_uuid
     __set_title(prompt=text, conversation_id=conversation_uuid)
-    # attachment_response = upload_attachment(attachment)
-    # logging.info(attachment_response)
-    # attachments = [attachment_response]
-    # if attachment:
-    #     logging.info(f"Uploading attachment {attachment}")
-    #     attachment_response = upload_attachment(attachment)
-    #     if attachment_response:
-    #         attachments = [attachment_response]
-    #     else:
-    #         logging.error("File upload failed: {}".format(attachment))
-    attachments = []
-    payload = json.dumps(
-        {
-            "completion": {
-                "prompt": f"{text}",
-                "timezone": "Europe/Warsaw",
-                "model": "claude-2.1",
-            },
-            "organization_uuid": organization_id,
-            "conversation_uuid": conversation_uuid,
-            "text": f"{text}",
-            "attachments": attachments,
-        }
-    )
-    response = requests.post(
-        f"{base_url}/api/append_message",
+    attachment_response = []
+    if attachments:
+        logging.info("Uploading attachments")
+        logging.info(attachments)
+        attachment_response = upload_attachment(attachments)
+        if not attachment_response:
+            logging.error("File uploads failed")
+    payload = {
+        "prompt": text,
+        "timezone": "Europe/Warsaw",
+        "model": "claude-2.1",
+        "attachments": attachment_response,
+    }
+    post_response = requests.post(
+        f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_uuid}/completion",
         headers=headers,
-        data=payload,
+        data=json.dumps(payload),
         impersonate=browser_version,
-        timeout=600,
+        timeout=request_timeout,
     )
-    if not response.ok:
-        logging.error(f"POST request returned {response.status_code} {response.reason}")
-        logging.info(response.content.decode("utf-8"))
+    if not post_response.ok:
+        logging.error(
+            f"POST request returned {post_response.status_code} {post_response.reason}"
+        )
+        logging.info(post_response.content.decode("utf-8"))
         logging.info(payload)
 
+    time.sleep(2)
+    response = requests.get(
+        f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_uuid}",
+        headers=headers,
+        impersonate=browser_version,
+        timeout=request_timeout,
+    )
+    if not response.ok:
+        logging.error(
+            f"GET request for conversation {conversation_uuid} returned {response.status_code} {response.reason}"
+        )
+        return response.text
     decoded_data = response.content.decode("utf-8")
-    decoded_data = re.sub("\n+", "\n", decoded_data).strip()
-    data_strings = decoded_data.split("\n")
-    completions = []
-    for data_string in data_strings:
-        json_str = data_string[6:].strip()
-        data = json.loads(json_str)
-        if "completion" in data:
-            completions.append(data["completion"])
-    answer = "".join(completions)
-    return escape_markdown_v2(answer)
+    # logging.info(decoded_data)
+    data = json.loads(decoded_data)
+    last = data["chat_messages"][-1]
+    return escape_markdown_v2(last)
 
 
 def __set_conversation(conversation_id: str) -> None:
@@ -171,6 +157,7 @@ def __set_conversation(conversation_id: str) -> None:
         logging.error(e)
         raise Exception(e)
     logging.info(f"Claude conversation has been reset. New ID {conversation_id}")
+    headers["Referer"] = f"{base_url}/chat/{conversation_id}"
 
 
 def __generate_uuid() -> str:
@@ -216,9 +203,8 @@ def __set_title(prompt: str, conversation_id: str) -> str:
     return title
 
 
-cookies = read_json_from_s3(
-    read_ssm_param(param_name="BOT_S3_BUCKET"), "claude-cookies.json"
-)
+bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
+cookies = read_json_from_s3(bucket_name, "claude-cookies.json")
 logging.info(f"Read {len(cookies)} cookies from s3")
 cookies_str = ""
 for cookie_data in cookies:
@@ -242,7 +228,9 @@ def __process_payload(payload: Any, request_id: str) -> None:
         process_command(input=payload["text"], context=user_context)
         return
     response = ask(
-        text=payload["text"], context=user_context, attachment=payload.get("file", None)
+        text=payload["text"],
+        context=user_context,
+        attachments=payload.get("file", None),
     )
     user_context.save_conversation(
         conversation={"request": payload["text"], "response": response},
@@ -259,7 +247,3 @@ def sns_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
         __process_payload(payload, request_id)
-
-
-# if __name__ == "__main__":
-#     ask("a ile kosztuje ta usługa miesięczne?")

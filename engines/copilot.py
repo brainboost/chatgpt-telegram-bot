@@ -10,7 +10,7 @@ from sydney import SydneyClient
 from .common_utils import (
     encode_message,
     escape_markdown_v2,
-    get_image,
+    get_s3_file,
     json_cookies_to_header_string,
     read_json_from_s3,
     read_ssm_param,
@@ -53,7 +53,7 @@ async def ask(
 
     if file_path:
         logging.info(f"Downloading image '{file_path}'")
-        image = get_image(file_path, bucket_name)
+        image = get_s3_file(file_path, bucket_name)
     else:
         image = None
 

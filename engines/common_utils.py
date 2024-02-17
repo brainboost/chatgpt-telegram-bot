@@ -47,7 +47,7 @@ def escape_markdown_v2(text: str) -> str:
     return re.sub(pattern=esc_pattern, repl=r"\\\1", string=text)
 
 
-def get_image(s3_uri: str | None, bucket_name: str) -> Optional[str]:
+def get_s3_file(s3_uri: str | None, bucket_name: str) -> Optional[str]:
     if not s3_uri:
         return None
     file_name = urlparse(s3_uri).path.split("/")[-1]
