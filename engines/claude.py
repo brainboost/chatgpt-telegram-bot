@@ -3,7 +3,6 @@ import logging
 import os
 import time
 import uuid
-from pathlib import Path
 from typing import Any
 
 import boto3
@@ -102,8 +101,10 @@ def ask(text: str, context: UserContext, attachments=None):
     if attachments:
         logging.info("Uploading attachments")
         logging.info(attachments)
-        attachment_response = upload_attachment(attachments)
-        if not attachment_response:
+        uploaded = upload_attachment(attachments)
+        if uploaded:
+            attachment_response.append(uploaded)
+        else:
             logging.error("File uploads failed")
     payload = {
         "prompt": text,
@@ -141,7 +142,7 @@ def ask(text: str, context: UserContext, attachments=None):
     # logging.info(decoded_data)
     data = json.loads(decoded_data)
     last = data["chat_messages"][-1]
-    return escape_markdown_v2(last)
+    return escape_markdown_v2(last["text"])
 
 
 def __set_conversation(conversation_id: str) -> None:

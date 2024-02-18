@@ -17,7 +17,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@master
       - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@master
+        uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE }}
           aws-region: ${{ secrets.AWS_REGION }}
@@ -30,12 +30,21 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+      - name: Setup venv
+        run: |
+          pip install uv
+          uv venv
+          echo "VIRTUAL_ENV=${Python_ROOT_DIR}" >> "$GITHUB_ENV"
       - name: Install CDK
         run: npm install -g aws-cdk 
       - name: Install dependencies
-        run: pip install -r requirements.txt -U --force
+        run: |
+          source .venv/bin/activate
+          uv pip install -r requirements.txt -U
       - name: Deploy stack
-        run: cdk deploy --all --require-approval never --force
+        run: |
+          source .venv/bin/activate
+          cdk deploy --all --require-approval never
