@@ -45,4 +45,6 @@ jobs:
           source .venv/bin/activate
           uv pip install -r requirements.txt -U
       - name: Deploy stack
-        run: cdk deploy --all --require-approval never
+        run: |
+          source .venv/bin/activate
+          cdk deploy --all --require-approval never

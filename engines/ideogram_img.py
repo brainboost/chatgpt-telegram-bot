@@ -16,8 +16,6 @@ base_url = "https://ideogram.ai"
 browser_version = "chrome110"
 
 post_task_url = f"{base_url}/api/images/sample"
-retrieve_metadata_url = f"{base_url}/api/images/retrieve_metadata_request_id/"
-get_images_url = f"{base_url}/api/images/direct/"
 
 sqs = boto3.session.Session().client("sqs")
 token = read_ssm_param(param_name="IDEOGRAM_TOKEN")
@@ -35,21 +33,22 @@ headers = {
     "TE": "trailers",
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) \
         Gecko/20100101 Firefox/117.0",
+    "Authorization": f"Bearer {channel_id}",
 }
 ideogram_result_queue = sqs.get_queue_url(QueueName="Ideogram-Result-Queue")["QueueUrl"]
 
 
 def request_images(prompt: str) -> str:
     payload = {
-        "aspect_ratio": "square",
+        "aspect_ratio": "1:1",
         "model_version": "V_0_2",
-        "channel_id": channel_id,
         "prompt": prompt,
         "raw_or_fun": "raw",
         "speed": "slow",
         "style": "photo",
         "user_id": user_id,
-        "variation_strength": 50
+        "variation_strength": 50,
+        "use_autoprompt_option": "AUTO",
     }
     logging.info(payload)
     response = requests.post(
@@ -57,11 +56,11 @@ def request_images(prompt: str) -> str:
         headers=headers,
         data=json.dumps(payload),
         impersonate=browser_version,
+        auth=("Bearer", channel_id),
     )
     if not response.ok:
         logging.error(response.text)
         raise Exception(f"Error response {str(response)}")
-
     response_body = response.json()
     logging.info(response_body)
     request_id = response_body["request_id"]
@@ -75,6 +74,7 @@ def send_retrieving_event(event: object) -> None:
     body = json.dumps(event)
     sqs.send_message(QueueUrl=ideogram_result_queue, MessageBody=body)
 
+
 def __process_payload(payload: Any, request_id: str) -> None:
     prompt = payload["text"]
     if prompt is None or not prompt.strip():
@@ -86,6 +86,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
     payload["queue_url"] = ideogram_result_queue
     send_retrieving_event(payload)
 
+
 def sns_handler(event, context):
     """AWS SNS event handler"""
     request_id = context.aws_request_id
@@ -93,4 +94,3 @@ def sns_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
         __process_payload(payload, request_id)
-
