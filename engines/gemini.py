@@ -2,11 +2,9 @@ import json
 import logging
 import os
 import re
-import textwrap
 import uuid
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import boto3
 import google.generativeai as genai
@@ -17,7 +15,7 @@ from google.generativeai.client import (
     _ClientManager,
 )
 
-from .common_utils import encode_message, read_ssm_param
+from .common_utils import encode_message, get_s3_file, read_ssm_param
 from .user_context import UserContext
 
 logging.basicConfig()
@@ -43,24 +41,6 @@ def process_command(input: str, context: UserContext) -> None:
     logging.error(f"Unknown command {command}")
 
 
-def get_image(s3_uri: str) -> str:
-    file_name = urlparse(s3_uri).path.split("/")[-1]
-    logging.info(f"Downloading file 'att/{file_name}' from s3 bucket {bucket_name}")
-    tmp_file = f"/tmp/{file_name}"
-    session = boto3.session.Session()
-    session.client("s3").download_file(
-        Bucket=bucket_name,
-        Key=f"att/{file_name}",
-        Filename=tmp_file,
-    )
-    if not (img := Path(tmp_file)).exists():
-        logging.error(
-            f"File {tmp_file} does not exist. Problem to download from s3 '{s3_uri}'"
-        )
-        raise FileNotFoundError(f"Could not find image: {img}")
-    return tmp_file
-
-
 def ask(
     text: str,
     file_path: str,
@@ -74,7 +54,7 @@ def ask(
     logging.info(f"conversation_id; '{context.conversation_id}'")
     if file_path:
         logging.info(f"Downloading image '{file_path}'")
-        image = get_image(file_path)
+        image = get_s3_file(file_path, bucket_name)
         response = _vision_model.generate_content(
             [
                 Part(

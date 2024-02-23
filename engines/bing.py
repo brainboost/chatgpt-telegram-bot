@@ -10,6 +10,7 @@ from EdgeGPT.EdgeGPT import CONVERSATION_STYLE_TYPE, Chatbot
 from .common_utils import (
     encode_message,
     escape_markdown_v2,
+    get_s3_file,
     read_json_from_s3,
     read_ssm_param,
 )
@@ -38,16 +39,20 @@ def ask(
     chatbot: Chatbot,
     style: CONVERSATION_STYLE_TYPE,
     context: UserContext,
+    file_path: str,
 ) -> str:
     if "/ping" in text:
         return "pong"
 
+    imagePath = get_s3_file(file_path, bucket_name)
+    logging.info(f"Got image path {imagePath}")
     response = asyncio.run(
         chatbot.ask(
             prompt=text,
             conversation_style=style,
             webpage_context=context.conversation_id,
             simplify_response=False,
+            attachment=imagePath,
         ),
     )
     logging.info(response)
@@ -102,8 +107,10 @@ def create() -> Chatbot:
     return chatbot
 
 
+bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
 sns = boto3.session.Session().client("sns")
+
 
 def __process_payload(payload: Any, request_id: str) -> None:
     user_id = payload["user_id"]
@@ -124,6 +131,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
         chatbot=instance,
         style=style,
         context=user_context,
+        file_path=payload.get("file", None),
     )
     user_context.save_conversation(
         conversation={"request": payload["text"], "response": response},
@@ -131,6 +139,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
     payload["response"] = encode_message(response)
     payload["engine"] = engine_type
     sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
+
 
 def sns_handler(event, context):
     """AWS SNS event handler"""
