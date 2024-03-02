@@ -138,19 +138,6 @@ class EnginesStack(Stack):
             handler=f"{ASSET_PATH}.copilot.sns_handler",
         )
 
-        # Bard
-
-        self.__create_engine(
-            engine_name="Bard",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["text", "command"]
-                ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bard"]),
-            },
-            handler=f"{ASSET_PATH}.bard.sns_handler",
-        )
-
         # ChatGPT
 
         self.__create_engine(

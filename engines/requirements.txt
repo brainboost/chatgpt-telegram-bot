@@ -1,7 +1,6 @@
 revchatgpt @ git+https://github.com/brainboost/ChatGPT.git
 bingimagecreator @ git+https://github.com/brainboost/BingImageCreator.git
 EdgeGPT-plus
-bardapi
 google-generativeai
 deepl
 websockets

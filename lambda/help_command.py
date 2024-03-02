@@ -69,10 +69,9 @@ Available values are:
     \• *precise*\. This mode is for when you want to get precise and accurate answers from me\. I can perform web searches, calculations, conversions, and other tasks that require logic and reasoning\. I can also generate images based on your specifications\. I use a concise and formal tone in this mode\."""  # noqa: E501
     elif text.endswith("engines"):
         message = """\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
-Example: \/engines bing,bard,chatgpt,llama,claude \- all listed engines will respond simultaneously\.
+Example: \/engines bing,chatgpt,llama,claude \- all listed engines will respond simultaneously\.
 This command persist it's value in the user configuration, so it will work until any of following commands applied: 
     \• \/bing
-    \• \/bard
     \• \/chatgpt
     \• \/llama
     \• \/claude
@@ -95,7 +94,6 @@ Supported commands are:
 \/imagine \- Generate images using DALL\-E engine
 \/ideogram \- Generate images using Ideogram.ai engine
 \/bing \- Switch answers to Bing AI model
-\/bard \- Switch answers to Google Bard AI model
 \/chatgpt \- Switch answers to OpenAI ChatGPT model
 \/llama \- Switch answers to Meta LLama2 AI model
 \/claude \- Switch answers to Anthropic Claude.ai AI model
