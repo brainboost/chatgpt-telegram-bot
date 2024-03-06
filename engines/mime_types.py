@@ -57,4 +57,9 @@ mime_types = {
     ".coffee": "text/coffeescript",
     ".tex": "text/x-tex",
     ".latex": "text/x-latex",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
 }

@@ -59,16 +59,15 @@ def get_content_type(file_path) -> str:
     return mime_types.get(extension, "application/octet-stream")
 
 
-def upload_attachment(s3_uri: str) -> Any:
-    url = f"{base_url}/api/convert_document"
-    tmp_file = get_s3_file(s3_uri, bucket_name)
+def upload_attachment(tmp_file: str, content_type: str) -> Any:
     file_name = os.path.basename(tmp_file)
     m = MultipartEncoder(
         fields={
-            "file": (file_name, open(tmp_file, "rb"), get_content_type(tmp_file)),
+            "file": (file_name, open(tmp_file, "rb"), content_type),
             "orgUuid": (None, organization_id),
         }
     )
+    url = f"{base_url}/api/{organization_id}/upload"
     req_headers = dict(headers)
     req_headers["Content-Type"] = m.content_type
     response = requests.post(
@@ -89,7 +88,36 @@ def upload_attachment(s3_uri: str) -> Any:
         return None
 
 
-def ask(text: str, context: UserContext, attachments=None):
+def convert_attachment(tmp_file: str, content_type: str) -> Any:
+    file_name = os.path.basename(tmp_file)
+    m = MultipartEncoder(
+        fields={
+            "file": (file_name, open(tmp_file, "rb"), content_type),
+            "orgUuid": (None, organization_id),
+        }
+    )
+    url = f"{base_url}/api/convert_document"
+    req_headers = dict(headers)
+    req_headers["Content-Type"] = m.content_type
+    response = requests.post(
+        url,
+        headers=req_headers,
+        impersonate=browser_version,
+        data=m.to_string(),
+        timeout=request_timeout,
+    )
+    logging.info(f"Uploaded file {tmp_file}, response '{response.status_code}'")
+    # os.remove(tmp_file)
+    if response.status_code == 200:
+        return response.json()
+    else:
+        logging.error(f"POST upload returned {response.status_code} {response.reason}")
+        logging.info(response.content.decode("utf-8"))
+        logging.info(headers)
+        return None
+
+
+def ask(context: UserContext, text: str, attachments=None, files=None):
     if "/ping" in text:
         return "pong"
 
@@ -97,20 +125,11 @@ def ask(text: str, context: UserContext, attachments=None):
     __set_conversation(conversation_id=conversation_uuid)
     context.conversation_id = conversation_uuid
     __set_title(prompt=text, conversation_id=conversation_uuid)
-    attachment_response = []
-    if attachments:
-        logging.info("Uploading attachments")
-        logging.info(attachments)
-        uploaded = upload_attachment(attachments)
-        if uploaded:
-            attachment_response.append(uploaded)
-        else:
-            logging.error("File uploads failed")
     payload = {
         "prompt": text,
         "timezone": "Europe/Warsaw",
-        "model": "claude-2.1",
-        "attachments": attachment_response,
+        "attachments": attachments or [],
+        "files": files or [],
     }
     post_response = requests.post(
         f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_uuid}/completion",
@@ -143,6 +162,48 @@ def ask(text: str, context: UserContext, attachments=None):
     data = json.loads(decoded_data)
     last = data["chat_messages"][-1]
     return escape_markdown_v2(last["text"])
+
+
+def process_attachments(attachments: str) -> tuple:
+    attachment_response = []
+    other_files = []
+    if attachments:
+        logging.info("Uploading attachments")
+        logging.info(attachments)
+        tmp_file_name = get_s3_file(attachments, bucket_name)
+        logging.info(f"Uploads saved to {tmp_file_name}")
+        content_type = get_content_type(tmp_file_name)
+        if "image/" in content_type:
+            logging.info(f"Uploading attachment of mimetype {content_type}")
+            upload_response = upload_attachment(attachments, content_type)
+            if upload_response:
+                logging.info(f"Upload response: {upload_response}")
+                other_files.append(upload_response.file_uuid)
+            else:
+                logging.error("File uploads failed")
+        elif "text/" in content_type:
+            file_size = os.path.getsize(tmp_file_name)
+            logging.info(
+                f"Reading text content of mimetype {content_type} of size {file_size}"
+            )
+            with open(tmp_file_name, "r", encoding="utf-8") as file:
+                file_content = file.read()
+            attachment_response.append(
+                {
+                    "file_name": tmp_file_name,
+                    "file_type": "text/plain",
+                    "file_size": file_size,
+                    "extracted_content": file_content,
+                }
+            )
+        else:
+            logging.info(f"Converting attachment of mimetype {content_type}")
+            uploaded = convert_attachment(attachments, content_type)
+            if uploaded:
+                attachment_response.append(uploaded)
+            else:
+                logging.error("Converting attachment failed")
+    return (attachment_response, other_files)
 
 
 def __set_conversation(conversation_id: str) -> None:
@@ -217,7 +278,7 @@ result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
 sns = boto3.session.Session().client("sns")
 
 
-def __process_payload(payload: Any, request_id: str) -> None:
+def process_payload(payload: Any, request_id: str) -> None:
     user_id = payload["user_id"]
     user_context = UserContext(
         user_id=f"{user_id}_{payload['chat_id']}",
@@ -228,10 +289,12 @@ def __process_payload(payload: Any, request_id: str) -> None:
     if "command" in payload["type"]:
         process_command(input=payload["text"], context=user_context)
         return
+    attachments_tuple = process_attachments(attachments=payload.get("file", None))
     response = ask(
-        text=payload["text"],
         context=user_context,
-        attachments=payload.get("file", None),
+        text=payload["text"],
+        attachments=attachments_tuple[0],
+        files=attachments_tuple[1],
     )
     user_context.save_conversation(
         conversation={"request": payload["text"], "response": response},
@@ -247,4 +310,4 @@ def sns_handler(event, context):
     logging.info(f"Request ID: {request_id}")
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
-        __process_payload(payload, request_id)
+        process_payload(payload, request_id)
