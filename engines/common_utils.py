@@ -19,10 +19,13 @@ def read_ssm_param(param_name: str) -> str:
     return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
 
 
-def read_json_from_s3(bucket_name: str, file_name: str) -> Any:
+def read_json_from_s3(bucket_name: str, file_name: str) -> Optional[Any]:
     s3 = boto3.client("s3")
     response = s3.get_object(Bucket=bucket_name, Key=file_name)
-    file_content = response["Body"].read().decode("utf-8")
+    body = response.get("Body", None)
+    if not body:
+        return None
+    file_content = body.read().decode("utf-8")
     return json.loads(file_content)
 
 
