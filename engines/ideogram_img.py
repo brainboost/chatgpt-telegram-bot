@@ -16,21 +16,18 @@ from .common_utils import (
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
+ig_cookies = "ig-cookies.json"
 base_url = "https://ideogram.ai"
-browser_version = "chrome110"
-user_agent = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/117.0"
-)
+browser_version = "chrome120"
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 id_key = "AIzaSyBwq4bRiOapXYaKE-0Y46vLAw1-fzALq7Y"
 tokens_file = "google_auth.json"
 post_task_url = f"{base_url}/api/images/sample"
 
 sqs = boto3.session.Session().client("sqs")
-token = read_ssm_param(param_name="IDEOGRAM_TOKEN")
+bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 user_id = read_ssm_param(param_name="IDEOGRAM_USER")
-# channel_id = read_ssm_param(param_name="IDEOGRAM_CHANNEL")
 headers = {
-    "Cookie": f"session_cookie={token};",
     "Origin": base_url,
     "Referer": base_url + "/",
     "DNT": "1",
@@ -38,11 +35,10 @@ headers = {
     "Content-Type": "application/json",
     "Pragma": "no-cache",
     "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
     "TE": "trailers",
     "User-Agent": user_agent,
-    # "Authorization": f"Bearer {channel_id}",
 }
-bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 ideogram_result_queue = sqs.get_queue_url(QueueName="Ideogram-Result-Queue")["QueueUrl"]
 
 
@@ -59,28 +55,50 @@ def is_expired(id_token: str) -> bool:
         return False
 
 
-def refresh_tokens(refresh_token: str) -> dict:
+def refresh_iss_tokens(refresh_token: str) -> dict:
     request_ref = "https://securetoken.googleapis.com/v1/token?key=" + id_key
     headers = {
         "Accept": "*/*",
         "Content-Type": "application/json; charset=UTF-8",
         "X-Client-Version": "Firefox/JsCore/9.23.0/FirebaseCore-web",
         "User-Agent": user_agent,
-        "Origin": "https://ideogram.ai",
+        "Origin": base_url,
     }
     data = json.dumps({"grantType": "refresh_token", "refreshToken": refresh_token})
-    response_object = requests.post(request_ref, headers=headers, data=data)
+    response_object = requests.post(
+        request_ref,
+        headers=headers,
+        data=data,
+        impersonate=browser_version,
+    )
     response_object_json = response_object.json()
     tokens = {
         "user_id": response_object_json["user_id"],
-        "id_token": response_object_json["id_token"],
+        "access_token": response_object_json["access_token"],
         "refresh_token": response_object_json["refresh_token"],
     }
     save_to_s3(bucket_name=bucket_name, file_name=tokens_file, value=tokens)
     return tokens
 
 
-def check_and_refresh_google_token() -> str:
+def get_session_cookies(iss_token: str) -> dict:
+    request_url = f"{base_url}/api/account/login"
+    headers["Authorization"] = f"Bearer {iss_token}"
+    response_obj = requests.post(
+        url=request_url,
+        headers=headers,
+        data=json.dumps({}),
+        auth=("Bearer", iss_token),
+    )
+    if not response_obj.ok:
+        logging.error(response_obj.text)
+        raise Exception(f"Error response {str(response_obj)}")
+    cookies = dict(response_obj.cookies)
+    save_to_s3(bucket_name=bucket_name, file_name=ig_cookies, value=cookies)
+    return cookies
+
+
+def check_and_refresh_auth_tokens() -> dict:
     tokens = read_json_from_s3(bucket_name=bucket_name, file_name=tokens_file)
     if not tokens:
         error = f"Cannot read file '{tokens_file}' from the S3 bucket '{bucket_name}'. Put json with the field 'refresh_token' and save"
@@ -90,10 +108,18 @@ def check_and_refresh_google_token() -> str:
     if not refresh_token:
         logging.error(f"No 'refresh_token' found in the {tokens_file}")
         return None
-    id_token = tokens.get("id_token", None)
-    if not id_token or is_expired(id_token):
-        tokens = refresh_tokens(refresh_token=refresh_token)
-    return tokens["id_token"]
+    acc_token = tokens.get("access_token", None)
+    if not acc_token or is_expired(acc_token):
+        tokens = refresh_iss_tokens(refresh_token=refresh_token)
+    return tokens
+
+
+def __cookies_to_header_string(cookies: dict) -> str:
+    cookie_pairs = []
+    for key, value in cookies.items():
+        if key == "session_cookie":
+            cookie_pairs.append(f"{key}={value}")
+    return "; ".join(cookie_pairs)
 
 
 def request_images(prompt: str) -> str:
@@ -109,14 +135,21 @@ def request_images(prompt: str) -> str:
         "variation_strength": 50,
     }
     logging.info(payload)
-    bearer = check_and_refresh_google_token()
-    headers["Authorization"] = f"Bearer {bearer}"
+    tokens = check_and_refresh_auth_tokens()
+    try:
+        cookies = read_json_from_s3(bucket_name=bucket_name, file_name=ig_cookies)
+    except Exception:
+        logging.info(f"Cannot find {ig_cookies} in s3 bucket {bucket_name}")
+        cookies = None
+    if not cookies or is_expired(cookies["session_cookie"]):
+        cookies = get_session_cookies(iss_token=tokens["access_token"])
+    headers["Cookie"] = __cookies_to_header_string(dict(cookies))
+    headers["Authorization"] = f"Bearer {tokens['access_token']}"
     response = requests.post(
         url=post_task_url,
         headers=headers,
         data=json.dumps(payload),
         impersonate=browser_version,
-        auth=("Bearer", bearer),
     )
     if not response.ok:
         logging.error(response.text)

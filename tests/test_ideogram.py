@@ -2,30 +2,44 @@ import pytest
 
 from engines.common_utils import read_json_from_s3, read_ssm_param
 from engines.ideogram_img import (
-    check_and_refresh_google_token,
+    check_and_refresh_auth_tokens,
+    get_session_cookies,
     is_expired,
-    refresh_tokens,
+    refresh_iss_tokens,
     request_images,
 )
 
 
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_check_and_refresh(capsys):
     with capsys.disabled():
-        check_and_refresh_google_token()
+        tokens = check_and_refresh_auth_tokens()
+        assert "access_token" in tokens
+        assert "refresh_token" in tokens
 
 
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_refresh(capsys):
     with capsys.disabled():
         bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
         token = read_json_from_s3(bucket_name=bucket_name, file_name="google_auth.json")
-        data = refresh_tokens(token["refresh_token"])
-        assert not is_expired(data["id_token"])
+        data = refresh_iss_tokens(token["refresh_token"])
+        assert not is_expired(data["access_token"])
 
 
-@pytest.mark.skip()
-def test_authorize(capsys):
+# @pytest.mark.skip()
+def test_request_images(capsys):
     with capsys.disabled():
-        response = request_images(prompt="cute kittens playing with yarn ball")
-        print(response)
+        response = request_images(
+            prompt="cute kittens playfully engaging with a colorful yarn ball"
+        )
+        assert response
+
+
+# @pytest.mark.skip()
+def test_get_session_cookies(capsys):
+    with capsys.disabled():
+        bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
+        token = read_json_from_s3(bucket_name=bucket_name, file_name="google_auth.json")
+        response = get_session_cookies(iss_token=token["access_token"])
+        assert response

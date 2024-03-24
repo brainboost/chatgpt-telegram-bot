@@ -19,6 +19,11 @@ def read_ssm_param(param_name: str) -> str:
     return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
 
 
+def write_ssm_param(param_name: str, value: str) -> str:
+    ssm_client = boto3.client(service_name="ssm")
+    return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
+
+
 def read_json_from_s3(bucket_name: str, file_name: str) -> Optional[Any]:
     s3 = boto3.client("s3")
     response = s3.get_object(Bucket=bucket_name, Key=file_name)

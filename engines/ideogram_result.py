@@ -16,9 +16,10 @@ logging.getLogger().setLevel("INFO")
 
 engine_type = "ideogram"
 threshold_img_quality = 1024
-browser_version = "chrome110"
-retrieve_metadata_url = "https://ideogram.ai/api/images/retrieve_metadata_request_id/"
-get_images_url = "https://ideogram.ai/api/images/direct/"
+base_url = "https://ideogram.ai"
+browser_version = "chrome120"
+retrieve_metadata_url = f"{base_url}/api/images/retrieve_metadata_request_id/"
+get_images_url = f"{base_url}/api/images/direct/"
 
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
 sns = boto3.session.Session().client("sns")
