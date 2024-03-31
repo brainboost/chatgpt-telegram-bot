@@ -10,7 +10,7 @@ from engines.ideogram_img import (
 )
 
 
-# @pytest.mark.skip()
+@pytest.mark.skip()
 def test_check_and_refresh(capsys):
     with capsys.disabled():
         tokens = check_and_refresh_auth_tokens()
@@ -18,7 +18,7 @@ def test_check_and_refresh(capsys):
         assert "refresh_token" in tokens
 
 
-# @pytest.mark.skip()
+@pytest.mark.skip()
 def test_refresh(capsys):
     with capsys.disabled():
         bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
@@ -27,7 +27,7 @@ def test_refresh(capsys):
         assert not is_expired(data["access_token"])
 
 
-# @pytest.mark.skip()
+@pytest.mark.skip()
 def test_request_images(capsys):
     with capsys.disabled():
         response = request_images(
@@ -36,7 +36,7 @@ def test_request_images(capsys):
         assert response
 
 
-# @pytest.mark.skip()
+@pytest.mark.skip()
 def test_get_session_cookies(capsys):
     with capsys.disabled():
         bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")

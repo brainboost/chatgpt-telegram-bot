@@ -23,15 +23,23 @@ def create() -> ImageGen:
     bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
     auth_cookies = read_json_from_s3(bucket_name, "bing-cookies.json")
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
-    srch = [x.get("value") for x in auth_cookies if x.get("name") == "SRCHHPGUSR"][0]
+    srch = srch = [
+        x.get("value")
+        for x in auth_cookies
+        if x.get("name") == "SRCHHPGUSR" and x.get("path") == "/images"
+    ][0]
     return ImageGen(
-        auth_cookie=u, auth_cookie_SRCHHPGUSR=srch, quiet=True, all_cookies=auth_cookies
+        auth_cookie=u,
+        auth_cookie_SRCHHPGUSR=srch,
+        quiet=False,
+        all_cookies=auth_cookies,
     )
 
 
 imageGen = create()
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
 sns = boto3.session.Session().client("sns")
+
 
 def __process_payload(payload: Any, request_id: str) -> None:
     prompt = payload["text"]
@@ -81,6 +89,7 @@ def sqs_handler(event, context):
     for record in event["Records"]:
         payload = json.loads(record["body"])
         __process_payload(payload, request_id)
+
 
 def sns_handler(event, context):
     """AWS SNS event handler"""
