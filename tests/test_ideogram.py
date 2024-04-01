@@ -43,3 +43,11 @@ def test_get_session_cookies(capsys):
         token = read_json_from_s3(bucket_name=bucket_name, file_name="google_auth.json")
         response = get_session_cookies(iss_token=token["access_token"])
         assert response
+
+
+@pytest.mark.skip()
+def test_is_expired(capsys):
+    with capsys.disabled():
+        bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
+        token = read_json_from_s3(bucket_name=bucket_name, file_name="google_auth.json")
+        assert not is_expired(token["access_token"])

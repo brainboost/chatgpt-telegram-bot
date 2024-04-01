@@ -50,9 +50,9 @@ def is_expired(id_token: str) -> bool:
         logging.info(f"exp:{exp}, now:{now}")
         return exp > now
     except jwt.ExpiredSignatureError:
-        return False
+        return True
     except jwt.InvalidTokenError:
-        return False
+        return True
 
 
 def refresh_iss_tokens(refresh_token: str) -> dict:
