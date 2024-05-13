@@ -250,20 +250,18 @@ def __get_organization():
 
 def __set_title(prompt: str, conversation_id: str) -> str:
     payload = {
-        "organization_uuid": organization_id,
-        "conversation_uuid": conversation_id,
         "message_content": prompt,
         "recent_titles": [],
     }
     response = requests.post(
-        url=f"{base_url}/api/generate_chat_title",
+        url=f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_id}/title",
         headers=headers,
         data=json.dumps(payload),
         impersonate=browser_version,
     )
     if not response.ok:
         logging.error(response.text)
-        raise Exception(f"Error response {response.text}")
+        return "Untitled"
     title = response.json()["title"]
     logging.info(f"Title set to '{title}")
     return title
