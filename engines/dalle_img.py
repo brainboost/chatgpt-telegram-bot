@@ -23,14 +23,14 @@ def create() -> ImageGen:
     bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
     auth_cookies = read_json_from_s3(bucket_name, "bing-cookies.json")
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
-    srch = [
-        x.get("value")
-        for x in auth_cookies
-        if x.get("name") == "SRCHHPGUSR" and x.get("path") == "/images"
-    ][0]
+    # srch = [
+    #     x.get("value")
+    #     for x in auth_cookies
+    #     if x.get("name") == "SRCHHPGUSR" and x.get("path") == "/images"
+    # ][0]
     return ImageGen(
         auth_cookie=u,
-        auth_cookie_SRCHHPGUSR=srch,
+        # auth_cookie_SRCHHPGUSR=srch,
         quiet=False,
         all_cookies=auth_cookies,
     )
