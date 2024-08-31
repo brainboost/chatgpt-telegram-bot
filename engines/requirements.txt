@@ -1,5 +1,5 @@
 revchatgpt @ git+https://github.com/brainboost/ChatGPT.git
-bingimagecreator-fork @ git+https://github.com/yihong0618/BingImageCreator.git
+BingImageCreator-plus
 EdgeGPT-plus
 google-generativeai
 deepl

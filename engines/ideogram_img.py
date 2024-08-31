@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import datetime
+from  datetime import datetime, UTC
 from typing import Any
 
 import boto3
@@ -44,16 +44,20 @@ ideogram_result_queue = sqs.get_queue_url(QueueName="Ideogram-Result-Queue")["Qu
 
 def is_expired(id_token: str) -> bool:
     try:
-        claims = jwt.decode(jwt=id_token)
+        options = dict({})
+        options.setdefault("verify_signature", False)
+        claims = jwt.decode(jwt=id_token, options=options)
         exp = claims["exp"]
-        now = datetime.now().timestamp()
-        logging.info(f"exp:{exp}, now:{now}")
-        return exp > now
+        now = datetime.now(tz=UTC).timestamp()
+        logging.info(f"exp:{exp} < now:{now}")
+        return exp < now
     except jwt.ExpiredSignatureError:
+        logging.error("jwt expired")
         return True
-    except jwt.InvalidTokenError:
+    except jwt.InvalidTokenError as argument:
+        logging.error("invalid token")
+        logging.error(str(argument))
         return True
-
 
 def refresh_iss_tokens(refresh_token: str) -> dict:
     request_ref = "https://securetoken.googleapis.com/v1/token?key=" + id_key
@@ -125,14 +129,13 @@ def __cookies_to_header_string(cookies: dict) -> str:
 def request_images(prompt: str) -> str:
     payload = {
         "aspect_ratio": "1:1",
-        "model_version": "V_0_3",
+        "model_version": "V_1_5",
         "use_autoprompt_option": "ON",
         "prompt": prompt,
-        "raw_or_fun": "raw",
-        "speed": "slow",
-        "style": "photo",
+        "sampling_speed":0,
+        "style_expert":"AUTO",
+        "resolution":{"width":1024,"height":1024},
         "user_id": user_id,
-        "variation_strength": 50,
     }
     logging.info(payload)
     tokens = check_and_refresh_auth_tokens()

@@ -16,6 +16,7 @@ def test_check_and_refresh(capsys):
         tokens = check_and_refresh_auth_tokens()
         assert "access_token" in tokens
         assert "refresh_token" in tokens
+        print(tokens)
 
 
 @pytest.mark.skip()
@@ -27,7 +28,7 @@ def test_refresh(capsys):
         assert not is_expired(data["access_token"])
 
 
-@pytest.mark.skip()
+# @pytest.mark.skip()
 def test_request_images(capsys):
     with capsys.disabled():
         response = request_images(
