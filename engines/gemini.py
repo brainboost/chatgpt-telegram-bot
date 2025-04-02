@@ -1,34 +1,27 @@
 import json
 import logging
-import os
 import re
 import uuid
-from pathlib import Path
 from typing import Any
 
 import boto3
-import google.generativeai as genai
-from google.ai.generativelanguage import (
-    Part,
-)
-from google.generativeai.client import (
-    _ClientManager,
-)
+from google import genai
+from google.genai import types
 
-from .common_utils import encode_message, get_s3_file, read_ssm_param
+from .common_utils import encode_message, read_ssm_param
 from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 engine_type = "gemini"
-safety_level = "BLOCK_ONLY_HIGH"
+model = "gemini-2.5-pro-exp-03-25"
 
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
 sns = boto3.session.Session().client("sns")
-_model: genai.GenerativeModel = None
-_vision_model = None
+_client = None
+_generation_config = None
 
 
 def process_command(input: str, context: UserContext) -> None:
@@ -52,27 +45,32 @@ def ask(
     if context.conversation_id is None:
         context.conversation_id = str(uuid.uuid4())
     logging.info(f"conversation_id; '{context.conversation_id}'")
-    if file_path:
-        logging.info(f"Downloading image '{file_path}'")
-        image = get_s3_file(file_path, bucket_name)
-        response = _vision_model.generate_content(
-            [
-                Part(
-                    inline_data={
-                        "mime_type": "image/jpeg",
-                        "data": Path(image).read_bytes(),
-                    }
-                ),
-                Part(text=text),
+    contents = [
+        types.Content(
+            role="user",
+            parts=[
+                types.Part.from_text(text=text),
             ],
-            stream=True,
-        )
-    else:
-        response = _model.generate_content(
-            # [Content.from_json(content) for content in conversation],
-            text,
-            stream=True,
-        )
+        ),
+    ]
+
+    # if file_path:
+    #     logging.info(f"Downloading image '{file_path}'")
+    #     image = get_s3_file(file_path, bucket_name)
+    #     imagePart = types.Part.from_bytes(Path(image).read_bytes())
+    #     contents[0].parts.append(
+    #         types.Part(
+    #             inline_data={
+    #                 "mime_type": "image/jpeg",
+    #                 "data": Path(image).read_bytes(),
+    #             }
+    #         ),
+    #     )
+    response = _client.models.generate_content_stream(
+        model=model,
+        contents=contents,
+        config=_generation_config,
+    )
     answer = ""
     for chunk in response:
         if len(chunk.parts) < 1 or "text" not in chunk.parts[0]:
@@ -82,50 +80,34 @@ def ask(
 
 
 def create() -> None:
-    """Initialize model API https://ai.google.dev/api"""
-
     logging.info("Create chatbot instance")
-    proxy_url = read_ssm_param(param_name="SOCKS5_URL")
-    os.environ["http_proxy"] = proxy_url
-    logging.info(f"Initializing Google AI module with proxy '{proxy_url}'")
-    generation_config = {
-        "temperature": 0.8,
-        "top_p": 1,
-        "top_k": 32,
-        "max_output_tokens": 4096,
-    }
     safety_settings = [
-        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": safety_level},
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {
             "category": "HARM_CATEGORY_HATE_SPEECH",
-            "threshold": safety_level,
+            "threshold": "BLOCK_NONE",
         },
         {
             "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-            "threshold": safety_level,
+            "threshold": "BLOCK_ONLY_HIGH",
         },
         {
             "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-            "threshold": safety_level,
+            "threshold": "BLOCK_NONE",
         },
     ]
-    global _model
-    _model = genai.GenerativeModel(
-        model_name="gemini-pro",
-        generation_config=generation_config,
+    global _generation_config
+    _generation_config = types.GenerateContentConfig(
+        temperature=1.2,
+        top_p=0.85,
+        max_output_tokens=65534,
         safety_settings=safety_settings,
+        response_mime_type="text/plain",
+        # response_mime_type="application/json",
     )
-    global _vision_model
-    _vision_model = genai.GenerativeModel(
-        model_name="gemini-pro-vision",
-        generation_config=generation_config,
-        safety_settings=safety_settings,
-    )
+    global _client
     api_key = read_ssm_param(param_name="GEMINI_API_KEY")
-    client_manager = _ClientManager()
-    client_manager.configure(api_key=api_key)
-    _model._client = client_manager.get_default_client("generative")
-    _vision_model._client = client_manager.get_default_client("generative")
+    _client = genai.Client(api_key=api_key)
 
 
 def __as_markdown(input: str) -> str:
@@ -147,7 +129,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
         process_command(input=payload["text"], context=user_context)
         return
 
-    if not (_model and _vision_model):
+    if not (_client):
         create()
 
     response = ask(
