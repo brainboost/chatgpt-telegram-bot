@@ -1,4 +1,3 @@
-revchatgpt @ git+https://github.com/brainboost/ChatGPT.git
 BingImageCreator-plus
 EdgeGPT-plus
 google-genai

@@ -11,7 +11,7 @@ logging.getLogger().setLevel("INFO")
 class UserConfig:
     def __init__(self) -> None:
         dynamodb = boto3.resource("dynamodb")
-        self.table = dynamodb.Table("user-configurations")
+        self.table = dynamodb.Table("user-configurations")  # type: ignore
 
     def read(self, user_id: int) -> dict:
         try:

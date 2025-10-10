@@ -61,7 +61,7 @@ def get_s3_file(s3_uri: str | None, bucket_name: str) -> Optional[str]:
     file_name = urlparse(s3_uri).path.split("/")[-1]
     logging.info(f"Downloading file 'att/{file_name}' from s3 bucket {bucket_name}")
     tmp_file = f"/tmp/{file_name}"
-    session = boto3.session.Session()
+    session = boto3.Session()
     session.client("s3").download_file(
         Bucket=bucket_name,
         Key=f"att/{file_name}",

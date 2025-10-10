@@ -142,7 +142,17 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# JetBrains IDEs configuration
+# IDEs configurations
 .idea/
-
 .vscode/
+.roo/
+.ruff_cache
+
+# uv package manager
+.uv/
+*.uv.lock
+.uv.lock.bak
+# uv cache (can be very large, should not be committed)
+.cache/uv/
+# Local uv configuration
+.uv.cfg

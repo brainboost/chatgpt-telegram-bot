@@ -22,6 +22,10 @@ engine_type = "dall-e"
 def create() -> ImageGen:
     bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
     auth_cookies = read_json_from_s3(bucket_name, "bing-cookies.json")
+
+    if auth_cookies is None:
+        raise ValueError("Failed to load auth cookies from S3")
+
     u = [x.get("value") for x in auth_cookies if x.get("name") == "_U"][0]
     srch = [
         x.get("value")
@@ -38,7 +42,7 @@ def create() -> ImageGen:
 
 imageGen = create()
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
-sns = boto3.session.Session().client("sns")
+sns = boto3.Session().client("sns")
 
 
 def __process_payload(payload: Any, request_id: str) -> None:
@@ -55,7 +59,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
         else:
             logging.error(e)
             logging.info(payload)
-            logging.info(imageGen.session.__dict__)
+            logging.info(imageGen.session.__dict__)  # type: ignore
 
     payload["response"] = list
     user_id = payload["user_id"]

@@ -21,7 +21,7 @@ add_task_url = (
 
 
 def process_command(input: str, context: UserContext) -> None:
-    command = input.removeprefix(prefix="/").lower()
+    command = input.removeprefix("/").lower()
     logging.info(f"Processing command {command} for {context.user_id}")
     if "reset" in command:
         context.reset_conversation()
@@ -56,9 +56,9 @@ def ask(
             "response": escape_markdown_v2(response["message"]),
             "engine": engine_type,
         }
-        sns = boto3.session.Session().client("sns")
+        sns = boto3.Session().client("sns")
         sns.publish(TopicArn=result_topic, Message=json.dumps(err_message))
-        return
+        return "error"
 
     process_id = response_body["process_id"]
     logging.info(process_id)
@@ -79,7 +79,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
     question = payload["text"]
     if "/ping" in question:
         payload["response"] = "pong"
-        sns = boto3.session.Session().client("sns")
+        sns = boto3.Session().client("sns")
         sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
         return
 

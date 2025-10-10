@@ -611,7 +611,7 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["bing", "copilot", "chatgpt", "llama", "claude", "gemini"],
+            ["bing", "copilot", "llama", "claude", "gemini"],
             engines,
             filters=filters.COMMAND,
         )

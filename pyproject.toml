@@ -1,0 +1,37 @@
+[project]
+name = "chatgpt-telegram-bot"
+version = "0.1.0"
+description = "Telegram bot with AI support for different models"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    # Runtime dependencies only - no dev or CDK dependencies here
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+    "pytest-cov",
+    "aws-cdk-lib>=2.63.0",
+    "constructs>=10.1.0,<11.0.0",
+]
+lambda = [
+    "python-telegram-bot",
+    "websockets",
+    "requests",
+    "boto3>=1.27.1",
+    "wget",
+]
+engines = [
+    "BingImageCreator-plus",
+    "EdgeGPT-plus",
+    "google-genai",
+    "deepl",
+    "websockets",
+    "requests",
+    "requests_toolbelt",
+    "curl_cffi",
+    "boto3",
+    "sydney-py",
+    "pyjwt",
+]

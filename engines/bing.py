@@ -25,7 +25,7 @@ ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
 
 
 def process_command(input: str, context: UserContext) -> None:
-    command = input.removeprefix(prefix="/").lower()
+    command = input.removeprefix("/").lower()
     logging.info(f"Processing command {command} for {context.user_id}")
     if "reset" in command:
         context.reset_conversation()
@@ -109,7 +109,7 @@ def create() -> Chatbot:
 
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
-sns = boto3.session.Session().client("sns")
+sns = boto3.Session().client("sns")
 
 
 def __process_payload(payload: Any, request_id: str) -> None:

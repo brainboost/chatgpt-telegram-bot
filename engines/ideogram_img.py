@@ -24,7 +24,7 @@ id_key = "AIzaSyBwq4bRiOapXYaKE-0Y46vLAw1-fzALq7Y"
 tokens_file = "google_auth.json"
 post_task_url = f"{base_url}/api/images/sample"
 
-sqs = boto3.session.Session().client("sqs")
+sqs = boto3.Session().client("sqs")
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 user_id = read_ssm_param(param_name="IDEOGRAM_USER")
 headers = {
@@ -73,7 +73,7 @@ def refresh_iss_tokens(refresh_token: str) -> dict:
         request_ref,
         headers=headers,
         data=data,
-        impersonate=browser_version,
+        impersonate=browser_version, # type: ignore
     )
     response_object_json = response_object.json()
     tokens = {
@@ -111,7 +111,7 @@ def check_and_refresh_auth_tokens() -> dict:
     refresh_token = tokens.get("refresh_token", None)
     if not refresh_token:
         logging.error(f"No 'refresh_token' found in the {tokens_file}")
-        return None
+        return {}
     acc_token = tokens.get("access_token", None)
     if not acc_token or is_expired(acc_token):
         tokens = refresh_iss_tokens(refresh_token=refresh_token)
@@ -152,7 +152,7 @@ def request_images(prompt: str) -> str:
         url=post_task_url,
         headers=headers,
         data=json.dumps(payload),
-        impersonate=browser_version,
+        impersonate=browser_version, # type: ignore
     )
     if not response.ok:
         logging.error(response.text)

@@ -1,0 +1,21 @@
+[project]
+name = "chatgpt-telegram-bot-engines"
+version = "0.1.0"
+description = "LLM API handlers for the Telegram bot"
+requires-python = ">=3.13"
+dependencies = [
+  "BingImageCreator-plus",
+  "EdgeGPT-plus",
+  "google-genai",
+  "deepl",
+  "websockets",
+  "requests",
+  "requests_toolbelt",
+  "curl_cffi",
+  "boto3",
+  "sydney-py",
+  "pyjwt",
+]
+
+[dependency-groups]
+dev = []

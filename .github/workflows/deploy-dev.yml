@@ -1,6 +1,6 @@
 env:
   NODE_VERSION: "18"
-  PYTHON_VERSION: "3.11"
+  PYTHON_VERSION: "3.13"
   STAGE: "dev"
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
       - name: Install dependencies
         run: |
           source .venv/bin/activate
-          uv pip install -r requirements.txt -U
+          uv sync --all-packages --all-groups
       - name: Deploy stack
         run: |
           source .venv/bin/activate

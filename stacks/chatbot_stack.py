@@ -31,7 +31,7 @@ class ChatBotStack(Stack):
         lambda_role = aws_iam.Role(
             self,
             "ChatBotRole",
-            assumed_by=aws_iam.ServicePrincipal("lambda.amazonaws.com"),
+            assumed_by=aws_iam.ServicePrincipal("lambda.amazonaws.com"),  # type: ignore
             managed_policies=[
                 aws_iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole"
@@ -105,7 +105,7 @@ class ChatBotStack(Stack):
                 cmd=[f"{LAMBDA_ASSET_PATH}.results.response_handler"],
             ),
             timeout=Duration.minutes(1),
-            role=lambda_role,
+            role=lambda_role,  # type: ignore
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
             dead_letter_queue_enabled=True,
             dead_letter_queue=result_dlq,
@@ -118,7 +118,7 @@ class ChatBotStack(Stack):
         )
         result_handler.add_event_source(
             aws_lambda_event_sources.SnsEventSource(
-                topic=self.result_topic,
+                topic=self.result_topic,  # type: ignore
             )
         )
         aws_ssm.StringParameter(
@@ -139,7 +139,7 @@ class ChatBotStack(Stack):
                 cmd=[f"{LAMBDA_ASSET_PATH}.chatbot.telegram_api_handler"],
             ),
             timeout=Duration.minutes(1),
-            role=lambda_role,
+            role=lambda_role,  # type: ignore
             dead_letter_queue=aws_sqs.Queue(
                 self,
                 "BotHandler-DLQ",
@@ -185,7 +185,7 @@ class ChatBotStack(Stack):
                 exclude=["cdk.out"],
                 cmd=[f"{LAMBDA_ASSET_PATH}.webhook.lambda_handler"],
             ),
-            role=lambda_role,
+            role=lambda_role,  # type: ignore
             execute_on_handler_change=True,
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
@@ -206,7 +206,7 @@ class ChatBotStack(Stack):
         aws_sns.Subscription(
             self,
             "AlarmEmailSubscription",
-            topic=alarm_topic,
+            topic=alarm_topic,  # type: ignore
             endpoint=notify_email,
             protocol=aws_sns.SubscriptionProtocol.EMAIL,
         )
@@ -222,7 +222,7 @@ class ChatBotStack(Stack):
             comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
         )
 
-        result_dlq_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(alarm_topic))
+        result_dlq_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(alarm_topic))  # type: ignore
 
         bot_handler_error_alarm = aws_cloudwatch.Alarm(
             self,
@@ -238,5 +238,5 @@ class ChatBotStack(Stack):
         )
 
         bot_handler_error_alarm.add_alarm_action(
-            aws_cloudwatch_actions.SnsAction(alarm_topic)
+            aws_cloudwatch_actions.SnsAction(alarm_topic)  # type: ignore
         )

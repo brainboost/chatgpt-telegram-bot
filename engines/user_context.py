@@ -22,8 +22,8 @@ class UserContext:
         self.engine_id = engine_id
         self.request_id = request_id
         dynamodb = boto3.resource("dynamodb")
-        self.context_table = dynamodb.Table("user-context")
-        self.conversations_table = dynamodb.Table("user-conversations")
+        self.context_table = dynamodb.Table("user-context") # type: ignore
+        self.conversations_table = dynamodb.Table("user-conversations") # type: ignore
         self.context = self.read_context()
         self.conversation_id = self.__get_conversation_id()
         self.parent_id = self.__get_parent_id()
@@ -53,7 +53,7 @@ class UserContext:
                     "engine": item["engine"],
                     "conversation_id": item["conversation_id"],
                     "parent_id": item["parent_id"],
-                    "optional": json.loads(item["optional"] or {}),
+                    "optional": json.loads(item["optional"] or ""),
                     "exp": int(item["exp"]),
                 }
         except Exception as e:
