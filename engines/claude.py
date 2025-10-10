@@ -25,7 +25,6 @@ logging.getLogger().setLevel("INFO")
 engine_type = "claude"
 request_timeout = 600
 base_url = "https://claude.ai"
-browser_version = "chrome110"
 headers = {
     "Origin": f"{base_url}",
     "Referer": f"{base_url}/chats",
@@ -45,7 +44,7 @@ headers = {
 
 
 def process_command(input: str, context: UserContext) -> None:
-    command = input.removeprefix(prefix="/").lower()
+    command = input.removeprefix("/").lower()
     logging.info(f"Processing command {command} for {context.user_id}")
     if "reset" in command:
         context.reset_conversation()
@@ -73,7 +72,7 @@ def upload_attachment(tmp_file: str, content_type: str) -> Any:
     response = requests.post(
         url,
         headers=req_headers,
-        impersonate=browser_version,
+        impersonate="chrome110",
         data=m.to_string(),
         timeout=request_timeout,
     )
@@ -102,7 +101,7 @@ def convert_attachment(tmp_file: str, content_type: str) -> Any:
     response = requests.post(
         url,
         headers=req_headers,
-        impersonate=browser_version,
+        impersonate="chrome110",
         data=m.to_string(),
         timeout=request_timeout,
     )
@@ -135,7 +134,7 @@ def ask(context: UserContext, text: str, attachments=None, files=None):
         f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_uuid}/completion",
         headers=headers,
         data=json.dumps(payload),
-        impersonate=browser_version,
+        impersonate="chrome110",
         timeout=request_timeout,
     )
     if not post_response.ok:
@@ -149,7 +148,7 @@ def ask(context: UserContext, text: str, attachments=None, files=None):
     response = requests.get(
         f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_uuid}",
         headers=headers,
-        impersonate=browser_version,
+        impersonate="chrome110",
         timeout=request_timeout,
     )
     if not response.ok:
@@ -171,6 +170,9 @@ def process_attachments(attachments: str) -> tuple:
         logging.info("Uploading attachments")
         logging.info(attachments)
         tmp_file_name = get_s3_file(attachments, bucket_name)
+        if tmp_file_name is None:
+            logging.info(f"Cannot get attached file {attachments} from s3 bucket {bucket_name}")
+            raise Exception(f"Error when getting {attachments}")
         logging.info(f"Uploads saved to {tmp_file_name}")
         content_type = get_content_type(tmp_file_name)
         if "image/" in content_type:
@@ -215,7 +217,7 @@ def __set_conversation(conversation_id: str) -> None:
     url = f"{base_url}/api/organizations/{organization_id}/chat_conversations"
     payload = json.dumps({"uuid": conversation_id, "name": ""})
     response = requests.post(
-        url, headers=headers, data=payload, impersonate=browser_version
+        url, headers=headers, data=payload, impersonate="chrome110"
     )
     if not response.ok:
         logging.info(f"http status {response.status_code}")
@@ -236,7 +238,7 @@ def __generate_uuid() -> str:
 
 def __get_organization():
     url = f"{base_url}/api/organizations"
-    response = requests.get(url, headers=headers, impersonate=browser_version)
+    response = requests.get(url, headers=headers, impersonate="chrome110")
     if not response.ok:
         logging.error(
             f"Cannot get organizationID.{response.status_code} {response.reason} {response.text}"
@@ -257,7 +259,7 @@ def __set_title(prompt: str, conversation_id: str) -> str:
         url=f"{base_url}/api/organizations/{organization_id}/chat_conversations/{conversation_id}/title",
         headers=headers,
         data=json.dumps(payload),
-        impersonate=browser_version,
+        impersonate="chrome110",
     )
     if not response.ok:
         logging.error(response.text)
@@ -269,11 +271,12 @@ def __set_title(prompt: str, conversation_id: str) -> str:
 
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 cookies = read_json_from_s3(bucket_name, "claude-cookies.json")
-logging.info(f"Read {len(cookies)} cookies from s3")
-cookies_str = ""
-for cookie_data in cookies:
-    cookies_str += f"{cookie_data['name']}={cookie_data['value']};"
-headers["Cookie"] = cookies_str
+if cookies is not None:
+    logging.info(f"Read {len(cookies)} cookies from s3")
+    cookies_str = ""
+    for cookie_data in cookies:
+        cookies_str += f"{cookie_data['name']}={cookie_data['value']};"
+    headers["Cookie"] = cookies_str
 organization_id = __get_organization()
 
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")

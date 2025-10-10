@@ -28,7 +28,7 @@ def response_handler(event, context) -> None:
         payload = json.loads(record["Sns"]["Message"])
         # payload = json.loads(record["body"])
         chat_id = payload["chat_id"]
-        message_id = payload["message_id"]
+        message_id = int(payload["message_id"])
         message = decode_message(payload["response"])
         if "imagine" in payload["type"] or "ideogram" in payload["type"]:
             __send_images(chat_id, message_id, message)
@@ -41,7 +41,7 @@ def response_handler(event, context) -> None:
                 __send_text(chat_id, message_id, part)
 
 
-def __send_text(chat_id: str, message_id: str, text: str) -> None:
+def __send_text(chat_id: str, message_id: int, text: str) -> None:
     try:
         asyncio.get_event_loop().run_until_complete(
             bot.send_message(
@@ -79,7 +79,7 @@ def __send_text(chat_id: str, message_id: str, text: str) -> None:
         )
 
 
-def __send_images(chat_id: str, message_id: str, message: str) -> None:
+def __send_images(chat_id: str, message_id: int, message: str) -> None:
     for url in iter(message.splitlines()):
         if not __is_valid_url(url):
             logging.error(f"chat_id:{chat_id}, message_id: {message_id}")

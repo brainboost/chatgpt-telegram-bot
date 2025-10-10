@@ -1,15 +1,18 @@
-FROM public.ecr.aws/lambda/python:3.11
-RUN yum update -y
-RUN yum install git -y
+FROM public.ecr.aws/lambda/python:3.13
+
 RUN mkdir lambda
 RUN mkdir engines
-COPY lambda/requirements.txt lambda
-COPY engines/requirements.txt engines
+
+# Install uv for faster Python package management
+RUN pip install uv
+
+# Copy Python files
 COPY lambda/*.py lambda
 COPY engines/*.py engines
-RUN pip install pip --upgrade
-# RUN pip install uv
-# RUN uv venv
-# RUN source .venv/bin/activate
-RUN pip install -r engines/requirements.txt
-RUN pip install -r lambda/requirements.txt
+
+# Copy uv configuration files
+COPY pyproject.toml .
+COPY uv.lock .
+
+# Install only lambda-specific dependencies
+RUN uv sync --frozen --group lambda --no-dev

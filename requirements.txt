@@ -1,4 +1,0 @@
-aws-cdk-lib>=2.63.0
-constructs>=10.1.0,<11.0.0
--r lambda/requirements.txt
--r engines/requirements.txt

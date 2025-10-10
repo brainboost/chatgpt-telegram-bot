@@ -31,7 +31,7 @@ class ChatBotStack(Stack):
         lambda_role = aws_iam.Role(
             self,
             "ChatBotRole",
-            assumed_by=aws_iam.ServicePrincipal("lambda.amazonaws.com"),
+            assumed_by=aws_iam.ServicePrincipal("lambda.amazonaws.com"), # type: ignore
             managed_policies=[
                 aws_iam.ManagedPolicy.from_aws_managed_policy_name(
                     "service-role/AWSLambdaBasicExecutionRole"
@@ -105,7 +105,7 @@ class ChatBotStack(Stack):
                 cmd=[f"{LAMBDA_ASSET_PATH}.results.response_handler"],
             ),
             timeout=Duration.minutes(1),
-            role=lambda_role,
+            role=lambda_role, # type: ignore
             log_retention=aws_logs.RetentionDays.TWO_WEEKS,
             dead_letter_queue_enabled=True,
             dead_letter_queue=result_dlq,

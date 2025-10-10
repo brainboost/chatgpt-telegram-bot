@@ -1,0 +1,44 @@
+[project]
+name = "chatgpt-telegram-bot"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+# Core dependencies used by multiple components
+dependencies = [
+    "boto3>=1.27.1",
+    "requests>=2.32.5",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.2",
+]
+# Lambda container - only Telegram bot and AWS functionality
+lambda = [
+    "python-telegram-bot>=22.5",
+    "websockets>=14.2",
+    "wget>=3.2",
+]
+
+# Engines containers - AI service libraries
+engines = [
+    "revchatgpt",
+    "bingimagecreator-plus>=0.5.2",
+    "edgegpt-plus>=0.13.6",
+    "google-genai>=1.41.0",
+    "deepl>=1.23.0",
+    "curl-cffi>=0.13.0",
+    "requests-toolbelt>=1.0.0",
+    "sydney-py>=0.23.1",
+    "pyjwt>=2.10.1",
+]
+
+# CDK deployment - infrastructure as code
+cdk = [
+    "aws-cdk-lib>=2.63.0",
+    "constructs>=10.1.0,<11.0.0",
+]
+
+[tool.uv.sources]
+revchatgpt = { git = "https://github.com/brainboost/ChatGPT.git" }
