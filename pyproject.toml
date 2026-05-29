@@ -10,28 +10,25 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "pytest>=8.4.2",
+    "pytest>=9.0.3",
     "pytest-cov",
-    "aws-cdk-lib>=2.63.0",
+    "aws-cdk-lib>=2.257.0",
     "constructs>=10.1.0,<11.0.0",
 ]
 lambda = [
-    "python-telegram-bot",
+    "python-telegram-bot>=22.7",
     "websockets",
-    "requests",
-    "boto3>=1.27.1",
+    "requests>=2.34.2",
+    "boto3>=1.43.16",
     "wget",
 ]
 engines = [
-    "BingImageCreator-plus",
-    "EdgeGPT-plus",
-    "google-genai",
-    "deepl",
-    "websockets",
-    "requests",
-    "requests_toolbelt",
-    "curl_cffi",
-    "boto3",
-    "sydney-py",
-    "pyjwt",
+    "google-genai>=2.6.0",
+    "deepl>=1.30.0",
+    "websockets>=16.0",
+    "requests>=2.34.2",
+    "requests_toolbelt>=1.0.0",
+    "curl_cffi>=0.15.0",
+    "boto3>=1.43.16",
+    "pyjwt>=2.13.0",
 ]

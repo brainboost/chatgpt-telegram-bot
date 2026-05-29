@@ -29,7 +29,7 @@ class UserConfig:
     def create_config(self, user_id: int) -> dict:
         return {
             "user_id": user_id,
-            "engines": ["bing"],
+            "engines": ["gemini"],
             "languages": "pl,en-gb",
             "updated": int(time.time()),
         }

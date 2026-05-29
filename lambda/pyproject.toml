@@ -4,10 +4,10 @@ version = "0.1.0"
 description = "Lambda functions for the Telegram bot"
 requires-python = ">=3.13"
 dependencies = [
-  "python-telegram-bot",
-  "websockets",
-  "requests",
-  "boto3>=1.27.1",
+  "python-telegram-bot>=22.7",
+  "websockets>=16.0",
+  "requests>=2.34.2",
+  "boto3>=1.43.16",
   "wget",
 ]
 

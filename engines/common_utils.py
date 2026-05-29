@@ -19,9 +19,9 @@ def read_ssm_param(param_name: str) -> str:
     return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
 
 
-def write_ssm_param(param_name: str, value: str) -> str:
+def write_ssm_param(param_name: str, value: str) -> None:
     ssm_client = boto3.client(service_name="ssm")
-    return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
+    ssm_client.put_parameter(Name=param_name, Value=value, Type="String", Overwrite=True)
 
 
 def read_json_from_s3(bucket_name: str, file_name: str) -> Optional[Any]:

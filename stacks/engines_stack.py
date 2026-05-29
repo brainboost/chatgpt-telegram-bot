@@ -112,57 +112,6 @@ class EnginesStack(Stack):
 
         # AI Engine Lambdas
 
-        # Bing
-
-        self.__create_engine(
-            engine_name="Bing",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["text", "command"]
-                ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["bing"]),
-            },
-            handler=f"{ASSET_PATH}.bing.sns_handler",
-        )
-
-        self.__create_engine(
-            engine_name="Copilot",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["text", "command"]
-                ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["copilot"]
-                ),
-            },
-            handler=f"{ASSET_PATH}.copilot.sns_handler",
-        )
-
-        # ChatGPT
-
-        self.__create_engine(
-            engine_name="ChatGpt",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["text", "command"]
-                ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["chatgpt"]
-                ),
-            },
-            handler=f"{ASSET_PATH}.chat_gpt.sns_handler",
-        )
-
-        # Dall-E
-
-        self.__create_engine(
-            engine_name="Dalle",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(allowlist=["imagine"]),
-            },
-            handler=f"{ASSET_PATH}.dalle_img.sns_handler",
-        )
-
         # DeepL
 
         self.__create_engine(
