@@ -4,17 +4,14 @@ version = "0.1.0"
 description = "LLM API handlers for the Telegram bot"
 requires-python = ">=3.13"
 dependencies = [
-  "BingImageCreator-plus",
-  "EdgeGPT-plus",
-  "google-genai",
-  "deepl",
-  "websockets",
-  "requests",
-  "requests_toolbelt",
-  "curl_cffi",
-  "boto3",
-  "sydney-py",
-  "pyjwt",
+  "google-genai>=2.6.0",
+  "deepl>=1.30.0",
+  "websockets>=16.0",
+  "requests>=2.34.2",
+  "requests_toolbelt>=1.0.0",
+  "curl_cffi>=0.15.0",
+  "boto3>=1.43.16",
+  "pyjwt>=2.13.0",
 ]
 
 [dependency-groups]

@@ -15,7 +15,7 @@ logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 engine_type = "gemini"
-model = "gemini-2.5-pro-exp-03-25"
+model = "gemini-2.5-pro"
 
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
@@ -73,7 +73,7 @@ def ask(
     )
     answer = ""
     for chunk in response:
-        if len(chunk.parts) < 1 or "text" not in chunk.parts[0]:
+        if not chunk.parts or chunk.parts[0].text is None:
             continue
         answer += chunk.parts[0].text
     return __as_markdown(answer)

@@ -164,6 +164,8 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
     config = user_config.read(user_id)
     command = update.effective_message.text.strip("/").split()[0].lower()
+    if command == "imagine":
+        command = "ideogram"
     try:
         await __process_images(update, context, config, command)
     except Exception as e:
@@ -611,7 +613,7 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["bing", "copilot", "llama", "claude", "gemini"],
+            ["llama", "claude", "gemini"],
             engines,
             filters=filters.COMMAND,
         )
