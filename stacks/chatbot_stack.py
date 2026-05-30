@@ -94,6 +94,16 @@ class ChatBotStack(Stack):
         )
 
         docker_path = str(Path(__file__).parent.parent.resolve())
+
+        # Create log group for result handler
+        result_handler_log_group = aws_logs.LogGroup(
+            self,
+            "ResultProcessingHandlerLogGroup",
+            log_group_name="/aws/lambda/ResultProcessingHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         result_handler = DockerImageFunction(
             self,
             "ResultProcessingHandler",
@@ -106,7 +116,7 @@ class ChatBotStack(Stack):
             ),
             timeout=Duration.minutes(1),
             role=lambda_role,  # type: ignore
-            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
+            log_group=result_handler_log_group,
             dead_letter_queue_enabled=True,
             dead_letter_queue=result_dlq,
         )
@@ -128,6 +138,15 @@ class ChatBotStack(Stack):
             string_value=self.result_topic.topic_arn,
         )
 
+        # Create log group for bot handler
+        bot_handler_log_group = aws_logs.LogGroup(
+            self,
+            "BotHandlerLogGroup",
+            log_group_name="/aws/lambda/BotHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         lambda_function = DockerImageFunction(
             self,
             "BotHandler",
@@ -140,13 +159,13 @@ class ChatBotStack(Stack):
             ),
             timeout=Duration.minutes(1),
             role=lambda_role,  # type: ignore
+            log_group=bot_handler_log_group,
             dead_letter_queue=aws_sqs.Queue(
                 self,
                 "BotHandler-DLQ",
                 queue_name="BotHandler-DLQ",
                 retention_period=Duration.days(5),
             ),
-            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
 
         lambda_url = lambda_function.add_function_url(
@@ -171,6 +190,15 @@ class ChatBotStack(Stack):
             string_value=bucket.bucket_name,
         )
 
+        # Create log group for webhook trigger handler
+        webhook_trigger_log_group = aws_logs.LogGroup(
+            self,
+            "WebhookTriggerHandlerLogGroup",
+            log_group_name="/aws/lambda/WebhookTriggerHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         triggers.TriggerFunction(
             self,
             "WebhookTriggerHandler",
@@ -186,8 +214,8 @@ class ChatBotStack(Stack):
                 cmd=[f"{LAMBDA_ASSET_PATH}.webhook.lambda_handler"],
             ),
             role=lambda_role,  # type: ignore
+            log_group=webhook_trigger_log_group,
             execute_on_handler_change=True,
-            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
 
         # Alarms

@@ -114,6 +114,14 @@ class EnginesStack(Stack):
 
         # DeepL
 
+        deepl_log_group = aws_logs.LogGroup(
+            self,
+            "DeepLHandlerLogGroup",
+            log_group_name="/aws/lambda/DeepLHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.__create_engine(
             engine_name="DeepL",
             sns_filter_policy={
@@ -122,9 +130,18 @@ class EnginesStack(Stack):
                 ),
             },
             handler=f"{ASSET_PATH}.deepl_tr.sns_handler",
+            log_group=deepl_log_group,
         )
 
         # LLama2
+
+        llama_log_group = aws_logs.LogGroup(
+            self,
+            "LLamaHandlerLogGroup",
+            log_group_name="/aws/lambda/LLamaHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
 
         self.__create_engine(
             engine_name="LLama",
@@ -137,6 +154,7 @@ class EnginesStack(Stack):
                 ),
             },
             handler=f"{ASSET_PATH}.monsterapi.sns_handler",
+            log_group=llama_log_group,
         )
 
         # Add monsterapi callback handler
@@ -149,6 +167,16 @@ class EnginesStack(Stack):
             retention_period=Duration.days(5),
             enforce_ssl=True,
         )
+
+        # Create log group for monsterapi callback handler
+        monsterapi_callback_log_group = aws_logs.LogGroup(
+            self,
+            "MonsterApiCallbackHandlerLogGroup",
+            log_group_name="/aws/lambda/MonsterApiCallbackHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         api_callback = DockerImageFunction(
             self,
             "MonsterApiCallbackHandler",
@@ -162,9 +190,9 @@ class EnginesStack(Stack):
             timeout=Duration.minutes(3),
             memory_size=256,
             role=self.lambda_role,
+            log_group=monsterapi_callback_log_group,
             dead_letter_queue_enabled=True,
             dead_letter_queue=dlq,
-            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
         )
         dlq.grant_send_messages(api_callback)
         error_alarm = aws_cloudwatch.Alarm(
@@ -196,6 +224,14 @@ class EnginesStack(Stack):
 
         # Ideogram
 
+        ideogram_log_group = aws_logs.LogGroup(
+            self,
+            "IdeogramHandlerLogGroup",
+            log_group_name="/aws/lambda/IdeogramHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         self.__create_engine(
             engine_name="Ideogram",
             sns_filter_policy={
@@ -204,6 +240,7 @@ class EnginesStack(Stack):
                 ),
             },
             handler=f"{ASSET_PATH}.ideogram_img.sns_handler",
+            log_group=ideogram_log_group,
         )
 
         # Add ideogram result queue with delayed message to retrieve results when ready
@@ -217,6 +254,15 @@ class EnginesStack(Stack):
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             enforce_ssl=True,
         )
+        # Create log group for ideogram result handler
+        ideogram_result_log_group = aws_logs.LogGroup(
+            self,
+            "IdeogramResultHandlerLogGroup",
+            log_group_name="/aws/lambda/IdeogramResultHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
+
         resultHandler = DockerImageFunction(
             self,
             "IdeogramResultHandler",
@@ -227,7 +273,7 @@ class EnginesStack(Stack):
                 exclude=["cdk.out"],
                 cmd=[f"{ASSET_PATH}.ideogram_result.sqs_handler"],
             ),
-            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
+            log_group=ideogram_result_log_group,
             role=self.lambda_role,
             dead_letter_queue_enabled=True,
             dead_letter_queue=self.dlq,
@@ -237,6 +283,14 @@ class EnginesStack(Stack):
         )
 
         # Claude
+
+        claude_log_group = aws_logs.LogGroup(
+            self,
+            "ClaudeHandlerLogGroup",
+            log_group_name="/aws/lambda/ClaudeHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
 
         self.__create_engine(
             engine_name="Claude",
@@ -249,9 +303,18 @@ class EnginesStack(Stack):
                 ),
             },
             handler=f"{ASSET_PATH}.claude.sns_handler",
+            log_group=claude_log_group,
         )
 
         # Gemini
+
+        gemini_log_group = aws_logs.LogGroup(
+            self,
+            "GeminiHandlerLogGroup",
+            log_group_name="/aws/lambda/GeminiHandler",
+            retention=aws_logs.RetentionDays.TWO_WEEKS,
+            removal_policy=RemovalPolicy.DESTROY,
+        )
 
         self.__create_engine(
             engine_name="Gemini",
@@ -264,6 +327,7 @@ class EnginesStack(Stack):
                 ),
             },
             handler=f"{ASSET_PATH}.gemini.sns_handler",
+            log_group=gemini_log_group,
         )
 
     def __create_engine(
@@ -271,6 +335,7 @@ class EnginesStack(Stack):
         engine_name: str,
         sns_filter_policy: any,
         handler: str,
+        log_group: aws_logs.LogGroup,
     ) -> None:
         """Creates infrastructure for the AI engine handler (queue-lambda-alarm)."""
 
@@ -286,7 +351,7 @@ class EnginesStack(Stack):
             ),
             timeout=Duration.minutes(5),
             memory_size=256,
-            log_retention=aws_logs.RetentionDays.TWO_WEEKS,
+            log_group=log_group,
             role=self.lambda_role,
             dead_letter_queue_enabled=True,
             dead_letter_queue=self.dlq,
