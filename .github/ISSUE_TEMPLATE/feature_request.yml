@@ -1,0 +1,128 @@
+name: Feature Request ✨
+description: Suggest a new feature or enhancement for the chatgpt-telegram-bot
+title: "[FEATURE] Add the ability ..."
+assignees:
+  - brainboost
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Thanks for suggesting a feature!
+
+        Before submitting, please check if this feature has already been requested.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight Checklist
+      options:
+        - label: I have searched [existing requests](https://github.com/brainboost/chatgpt-telegram-bot/issues?q=is%3Aissue%20label%3Aenhancement) and this feature hasn't been requested yet
+          required: true
+        - label: This is a single feature request (not multiple features)
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem Statement
+      description: |
+        What problem are you trying to solve? Why do you need this feature?
+        Focus on the problem, not the solution.
+      placeholder: |
+        I'd like to ..., but the bot doesn't support...
+    validations:
+      required: false
+
+  - type: textarea
+    id: use_case
+    attributes:
+      label: Use Case Example
+      description: |
+        Provide a real-world example of when you'd use this feature.
+        Walk us through a scenario step-by-step.
+      placeholder: |
+        - With this feature, I could [...]
+        - This would save me time if it had [...]
+        - I'm always frustrated when [...]
+        - People often want to [...]
+    validations:
+      required: false
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: |
+        How would you like this to work? Describe the ideal user experience.
+        Be specific about how you'd interact with this feature.
+      placeholder: |
+        There should be a command or setting that allows...
+
+        The bot should respond with...
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions
+      description: |
+        What alternatives have you considered or tried?
+        Are there workarounds you're currently using?
+      placeholder: |
+        I've tried using...
+
+        Currently I work around this by...
+
+        Other tools solve this by...
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: |
+        - Screenshots or mockups of the proposed feature
+        - Links to similar features in other tools
+        - Technical considerations or constraints
+        - Any other relevant information
+      placeholder: Add any other context, mockups, or examples here...
+    validations:
+      required: false
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: How important is this feature to your workflow?
+      options:
+        - Critical - Blocking my work
+        - High - Significant impact on productivity
+        - Medium - Would be very helpful
+        - Low - Nice to have
+    validations:
+      required: true
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature Category
+      description: What area of the project does this feature relate to?
+      options:
+        - AI engine integration (Claude, Gemini, ChatGPT, Copilot, etc.)
+        - Bot commands & handlers (/start, /help, /imagine, /reset, etc.)
+        - Conversation & context management
+        - Image generation (Ideogram, DALL-E, etc.)
+        - Voice & audio (transcription, speech)
+        - User configuration & preferences
+        - AWS infrastructure (CDK, Lambda, SNS/SQS, DynamoDB)
+        - Result processing & formatting
+        - Performance & reliability
+        - Security & access control
+        - Documentation
+        - Other
+    validations:
+      required: true

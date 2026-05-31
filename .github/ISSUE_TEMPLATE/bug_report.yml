@@ -1,0 +1,127 @@
+name: Bug Report 🐛
+description: Report a bug or unexpected behavior in the chatgpt-telegram-bot
+title: "[BUG] Found a bug ..."
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Thanks for taking the time to report this bug!
+
+        Before submitting, please check:
+        - You're using the latest deployed version
+        - This issue hasn't already been reported by searching [existing issues](https://github.com/brainboost/chatgpt-telegram-bot/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug).
+        - This is a bug, not a feature request
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight Checklist
+      description: Please confirm before submitting
+      options:
+        - label: I have searched [existing issues](https://github.com/brainboost/chatgpt-telegram-bot/issues?q=is%3Aissue%20state%3Aopen%20label%3Abug) and this hasn't been reported yet
+          required: true
+        - label: This is a single bug report (please file separate reports for different bugs)
+          required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What's Wrong?
+      description: Describe what's happening that shouldn't be
+      placeholder: |
+        When I send the command [...] to the bot,
+        it responds with an error / wrong output / no response...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What Should Happen?
+      description: Describe the expected behavior
+      placeholder: The bot should respond with [...] without errors
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: |
+        Please provide clear steps that anyone can follow to reproduce the issue.
+      placeholder: |
+        1. Send the command to the bot:
+           ```
+           /imagine a sunset over mountains
+           ```
+        2. Bot replies with: "Unable to process request..."
+
+        Note: The bug only happens when...
+    validations:
+      required: false
+
+  - type: textarea
+    id: error_output
+    attributes:
+      label: Error Messages / CloudWatch Logs
+      description: If you see any error messages or have access to CloudWatch logs, paste them here
+      placeholder: |
+        Paste any error output, stack traces, or relevant Lambda logs here.
+        This will be automatically formatted as code.
+      render: shell
+    validations:
+      required: false
+
+  - type: dropdown
+    id: affected_engine
+    attributes:
+      label: Affected AI Engine
+      description: Which AI engine is involved? Select all that apply or "Not engine-specific"
+      options:
+        - Not engine-specific
+        - Claude (Anthropic)
+        - Gemini (Google)
+        - ChatGPT (OpenAI)
+        - Copilot (Microsoft)
+        - Bing
+        - Image generation (Ideogram / DALL-E)
+        - Voice / transcription
+        - Multiple engines
+    validations:
+      required: true
+
+  - type: dropdown
+    id: regression
+    attributes:
+      label: Is this a regression?
+      description: Did this work previously?
+      options:
+        - "Yes, this worked previously"
+        - "No, this never worked"
+        - "I'm not sure"
+    validations:
+      required: true
+
+  - type: input
+    id: working_version
+    attributes:
+      label: Last Working Date
+      description: If this is a regression, on what approximate date did it last work?
+      placeholder: "e.g. yesterday, a week ago, last month"
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Information
+      description: |
+        Anything else that might help understand the issue?
+        - Screenshots of the Telegram conversation
+        - AWS region / deployment stage (dev/prod)
+        - Links to relevant CloudWatch alarms or DLQ messages
+      placeholder: Any additional context, screenshots, or information...
+    validations:
+      required: false
