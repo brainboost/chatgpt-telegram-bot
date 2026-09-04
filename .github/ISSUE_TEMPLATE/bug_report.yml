@@ -82,7 +82,8 @@ body:
       options:
         - Not engine-specific
         - Gemini (Google)
-        - LLama (MonsterAPI)
+        - Qwen 3.5 (Ollama Cloud)
+        - LLama 4 (Ollama Cloud)
         - Image generation (Ideogram)
         - Translation (DeepL)
         - Voice / transcription

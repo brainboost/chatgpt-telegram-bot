@@ -112,7 +112,7 @@ body:
       label: Feature Category
       description: What area of the project does this feature relate to?
       options:
-        - AI engine integration (Gemini, LLama, etc.)
+        - AI engine integration (Gemini, LLama, Qwen, etc.)
         - Bot commands & handlers (/start, /help, /imagine, /reset, etc.)
         - Conversation & context management
         - Image generation (Ideogram)

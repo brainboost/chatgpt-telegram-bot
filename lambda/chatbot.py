@@ -613,7 +613,7 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["llama", "gemini"],
+            ["llama", "qwen", "gemini"],
             engines,
             filters=filters.COMMAND,
         )

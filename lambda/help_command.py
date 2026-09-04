@@ -69,9 +69,10 @@ Available values are:
     \• *precise*\. Concise and factual responses\."""  # noqa: E501
     elif text.endswith("engines"):
         message = r"""\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
-Example: \/engines gemini,llama \- all listed engines will respond simultaneously\.
+Example: \/engines gemini,qwen,llama \- all listed engines will respond simultaneously\.
 This command persists its value in the user configuration, so it will work until any of following commands applied:
     \• \/llama
+    \• \/qwen
     \• \/gemini
     \• \/engines"""  # noqa: E501
     else:
@@ -90,7 +91,8 @@ Supported commands are:
 \/tr \- Translate text to other language\(s\) using DeepL API
 \/imagine \- Generate images using Ideogram\.ai engine
 \/ideogram \- Generate images using Ideogram\.ai engine
-\/llama \- Switch answers to Meta LLama2 AI model
+\/llama \- Switch answers to Meta Llama 4 AI model \(Ollama Cloud\)
+\/qwen \- Switch answers to Alibaba Qwen 3\.5 AI model \(Ollama Cloud\)
 \/gemini \- Switch answers to Google Gemini AI model
 \/engines \- Activates multiple AI engines at once, comma separated list
 \/creative \- Set tone of responses to more creative \(Default\)

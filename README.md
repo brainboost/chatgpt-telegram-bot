@@ -4,8 +4,8 @@ A serverless Telegram bot that answers with multiple AI engines, generates image
 translates text. Built on AWS with the AWS CDK: Lambda functions running container images,
 SNS/SQS for asynchronous messaging, DynamoDB for state and S3 for storage.
 
-- **AI chat**: Gemini (Google) and LLama 2 (MonsterAPI) — enable several engines and they
-  answer your message **in parallel**
+- **AI chat**: Gemini (Google), plus **Qwen 3.5** and **Llama 4** via Ollama Cloud — enable
+  several engines and they answer your message **in parallel**
 - **Images**: Ideogram (native text/typography rendering)
 - **Translation**: DeepL (interactive multi-language flow)
 - **Voice**: voice messages are transcribed with Amazon Transcribe and sent to your engines
@@ -46,8 +46,8 @@ parts labelled `i of n`. In **groups**, the bot only reacts when it is addressed
 | `/start` | Welcome message and list of supported commands |
 | `/help <command>` | Help for one command, e.g. `/help tr`, `/help engines`, `/help imagine` |
 | `/engines` | Show the currently active engines |
-| `/engines <list>` | Activate engines for parallel answering, comma separated — `/engines gemini,llama`. Persists in your user configuration |
-| `/gemini` · `/llama` | Shortcuts to switch to a **single** engine |
+| `/engines <list>` | Activate engines for parallel answering, comma separated — `/engines gemini,llama,qwen`. Persists in your user configuration |
+| `/gemini` · `/llama` · `/qwen` | Shortcuts to switch to a **single** engine |
 | `/reset` | Reset the conversation/context of the currently active engines |
 | `/creative` · `/balanced` · `/precise` | Set the tone of responses (stored in your user configuration) |
 | `/imagine <prompt>` · `/ideogram <prompt>` | Generate an image with Ideogram — e.g. `/imagine cute kitty plays with a yarn ball` |
@@ -80,9 +80,15 @@ parts labelled `i of n`. In **groups**, the bot only reacts when it is addressed
 | Engine | Provider | Purpose | Handler |
 |---|---|---|---|
 | `gemini` | Google Gemini 3 (`gemini-3.8-flash`, GA) | Text chat | `engines/gemini.py` |
-| `llama` | MonsterAPI (LLama 2 7B) | Text chat, async via webhook callback | `engines/monsterapi.py` |
+| `qwen` | Alibaba Qwen 3.5 (Ollama Cloud, `qwen3.5:cloud`) | Text chat (sync) | `engines/ollama.py` |
+| `llama` | Meta Llama 4 (Ollama Cloud, `llama4:maverick-cloud`) | Text chat (sync) | `engines/ollama.py` |
 | Ideogram | ideogram.ai | Image generation (`/imagine`, `/ideogram`), async via polled queue | `engines/ideogram_img.py`, `engines/ideogram_result.py` |
 | DeepL | DeepL API | Translation (`/tr`) | `engines/deepl_tr.py` |
+
+The `qwen` and `llama` engines share one OpenAI-compatible Ollama Cloud handler; CDK sets the
+model tag per Lambda via the `OLLAMA_MODEL`/`OLLAMA_ENGINE` environment variables
+(override the tags to anything your Ollama account exposes under
+https://ollama.com/search?c=cloud).
 
 Engine handlers expose an SNS `sns_handler` (or `sqs_handler`/`callback_handler`) and are
 deployed as separate Lambda functions; see `stacks/engines_stack.py`.
@@ -93,8 +99,8 @@ deployed as separate Lambda functions; see `stacks/engines_stack.py`.
 
 Three CDK stacks (`app.py`):
 
-1. **EnginesStack** — SNS request topic, per-engine Docker Lambda functions (DLQ + alarms),
-   the Ideogram polling queue/result handler and the MonsterAPI webhook callback.
+1. **EnginesStack** — SNS request topic, per-engine Docker Lambda functions (DLQ + alarms)
+   and the Ideogram polling queue/result handler.
 2. **DatabaseStack** — DynamoDB tables: `user-configurations`, `user-conversations`,
    `user-context` (TTL 60 d), `request-jobs` (TTL 10 d).
 3. **ChatBotStack** — Telegram bot Lambda exposed via a Function URL (webhook target),
@@ -107,7 +113,7 @@ Request flow:
 Telegram webhook ──► BotHandler (Function URL)
         │  publish (SNS request-ai-topic, filter attributes: type / engines)
         ▼
-   ┌─────────────── engine Lambdas (Gemini, LLama, Ideogram, DeepL) ───────────────┐
+   ┌─────────────── engine Lambdas (Gemini, LLama, Qwen, Ideogram, DeepL) ─────────┐
    │ Ideogram: result polled via SQS delayed queue; LLama: result via webhook      │
    └───────────────► publish (SNS result-ai-topic) ◄───────────────────────────────┘
                         ▼
@@ -127,7 +133,7 @@ DynamoDB. All Lambda functions run the same container image built from the repo-
 app.py                     CDK entry point (defines the 3 stacks)
 stacks/                    CDK stack definitions (chatbot, engines, database)
 lambda/                    Telegram bot Lambdas: chatbot, results, webhook, utils, help
-engines/                   AI engine handlers: gemini, monsterapi, ideogram, deepl + shared utils
+engines/                   AI engine handlers: gemini, ollama (llama + qwen), ideogram, deepl + shared utils
 tests/                     pytest tests (live tests skipped without AWS)
 Dockerfile                 Multi-stage Lambda image (Python 3.14, uv + lockfiles)
 pyproject.toml             Root project: dev/CDK deps + lambda/engines dependency groups
@@ -191,7 +197,7 @@ Before the first deployment to an account/region, complete the checklist in
 [`UPDATE_VARS.md`](UPDATE_VARS.md). In short:
 
 1. Create the **manual SSM parameters** (`TELEGRAM_TOKEN`, `TELEGRAM_BOT_ADMINS`,
-   `SECRET_TOKEN`, `ALARM_EMAIL`, `GEMINI_API_KEY`, `DEEPL_AUTHKEY`, `MONSTERAPI_TOKEN`,
+   `SECRET_TOKEN`, `ALARM_EMAIL`, `GEMINI_API_KEY`, `DEEPL_AUTHKEY`, `OLLAMA_API_KEY`,
    `IDEOGRAM_USER`) — all as `Type=String` (see the caveat in `UPDATE_VARS.md`).
 2. Seed the S3 auth file **`google_auth.json`** (Ideogram refresh token) — the bucket is
    created by ChatBotStack, so upload the file right after the first deploy and before the

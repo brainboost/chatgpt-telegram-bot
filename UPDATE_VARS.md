@@ -29,7 +29,7 @@ deploy/cold-start time.
 | `ALARM_EMAIL` | EnginesStack + ChatBotStack (SNS alarm subscriptions) | `ops@example.com` | Resolved at **deploy time**; the SNS email subscription must be **confirmed** from the inbox or alarms stay silent. |
 | `GEMINI_API_KEY` | Gemini engine (`engines/gemini.py`) | Google AI Studio API key | Read lazily on first Gemini request. |
 | `DEEPL_AUTHKEY` | DeepL engine (`engines/deepl_tr.py`) | DeepL API auth key | — |
-| `MONSTERAPI_TOKEN` | LLama engine, callback + webhook trigger | MonsterAPI bearer token | — |
+| `OLLAMA_API_KEY` | LLama 4 + Qwen engines (`engines/ollama.py`) | Ollama Cloud API key (https://ollama.com/settings/keys) | Free plan: 1 concurrent request, monthly starter credits; both engines share the key |
 | `IDEOGRAM_USER` | Ideogram engine (`engines/ideogram_img.py`) | Firebase user id, e.g. `abc123...` | Must match the `user_id` inside `google_auth.json` (see §3). |
 
 Example (AWS CLI, run in the target region/account):
@@ -41,9 +41,14 @@ aws ssm put-parameter --name SECRET_TOKEN        --type String --value "$(openss
 aws ssm put-parameter --name ALARM_EMAIL         --type String --value "ops@example.com" --overwrite
 aws ssm put-parameter --name GEMINI_API_KEY      --type String --value "AIza..." --overwrite
 aws ssm put-parameter --name DEEPL_AUTHKEY       --type String --value "deep://..." --overwrite
-aws ssm put-parameter --name MONSTERAPI_TOKEN    --type String --value "m-..." --overwrite
+aws ssm put-parameter --name OLLAMA_API_KEY      --type String --value "ollama_..." --overwrite
 aws ssm put-parameter --name IDEOGRAM_USER       --type String --value "<firebase-uid>" --overwrite
 ```
+
+**Per-engine model tags** (Lambda env, set by EnginesStack; change + redeploy to override):
+`llama` → `llama4:maverick-cloud`, `qwen` → `qwen3.5:cloud` (env `OLLAMA_MODEL` / `OLLAMA_ENGINE`).
+Cloud model availability varies per Ollama account — verify the exact tag your account offers
+under https://ollama.com/search?c=cloud before relying on an engine.
 
 ---
 
@@ -55,7 +60,6 @@ aws ssm put-parameter --name IDEOGRAM_USER       --type String --value "<firebas
 | `RESULT_SNS_TOPIC_ARN` | ChatBotStack | ARN of the `result-ai-topic` SNS topic |
 | `BOT_LAMBDA_URL` | ChatBotStack | Function URL of BotHandler (webhook target) |
 | `BOT_S3_BUCKET` | ChatBotStack | Name of the bot's S3 bucket (see §3) |
-| `MONSTERAPI_CALLBACK_URL` | EnginesStack, **then rewritten** by WebhookTriggerHandler | Starts as the MonsterApi callback Lambda URL; after deploy the webhook handler replaces it with the **hashed webhook `url_name`** registered on MonsterAPI (intended behaviour — the LLama engine uses it as the callback id) |
 
 ---
 
@@ -94,9 +98,11 @@ Ideogram session cookies. The engine creates and refreshes this file itself
 (`get_session_cookies` → `save_to_s3`), so it may start **absent**; only add it manually to
 pre-seed a session. Key used by the engine: `session_cookie`.
 
-### Removed with the Claude engine (no longer needed — safe to delete)
-- SSM `CLAUDE_API_KEY` and the S3 file `claude-cookies.json` (the Claude engine and its
-  CDK Lambda were removed; leftover parameters/files in AWS can be cleaned up).
+### Removed with the Claude engine and the MonsterAPI migration (no longer needed — safe to delete)
+- SSM `CLAUDE_API_KEY` + S3 `claude-cookies.json` (Claude engine removed).
+- SSM `MONSTERAPI_TOKEN` / `MONSTERAPI_CALLBACK_URL` + SQS queue `MonsterApi-Callback-DLQ` +
+  Lambda `MonsterApiCallbackHandler` (MonsterAPI is offline since ~Sept 2025; the LLama
+  engine now uses Ollama Cloud via `OLLAMA_API_KEY`).
 
 ---
 
@@ -138,7 +144,7 @@ Environment-scoped: the `dev`/`prod` GitHub environments carry their own `AWS_RO
    auto-refreshed; only a dead `refresh_token` (or Ideogram changing auth) needs a manual
    `google_auth.json` update.
 4. **Secret rotation** — parameters are read at Lambda cold start (module import). After
-   rotating `TELEGRAM_TOKEN` / `MONSTERAPI_TOKEN` / `DEEPL_AUTHKEY` / `IDEOGRAM_USER`, update
+   rotating `TELEGRAM_TOKEN` / `OLLAMA_API_KEY` / `DEEPL_AUTHKEY` / `IDEOGRAM_USER`, update
    SSM and then **redeploy** (`cdk deploy --all`) or wait for idle containers to be recycled,
    otherwise warm Lambdas keep the old value.
 5. **Deploy order matters** — because engines read SSM at import time, missing parameters

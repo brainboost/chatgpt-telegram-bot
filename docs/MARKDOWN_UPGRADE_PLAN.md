@@ -118,7 +118,7 @@ All bot-visible text ends up in Telegram via one of two paths:
 | # | Location | What it does | Consumers |
 |---|----------|--------------|-----------|
 | F1 | `lambda/utils.py:106` `escape_markdown_v2()` (regex at `:18`) | escapes `. - + # \| { } ! = ( ) < >` unless adjacent to `\|` | chatbot voice transcripts, `/redrive` status (local bot replies) |
-| F2 | `engines/common_utils.py:54` `escape_markdown_v2()` (regex at `:14`) | identical copy of F1 | `deepl_tr.py`, `monsterapi.py`, `monsterapi_result.py` |
+| F2 | `engines/common_utils.py:54` `escape_markdown_v2()` (regex at `:14`) | identical copy of F1 | `deepl_tr.py`, `ollama.py` (llama + qwen engines) |
 | F3 | `engines/gemini.py:115` `__as_markdown()` | bespoke “strip emphasis, then escape” regex (`*` collapsing, subset escaping) | `gemini.py` answers |
 | F4 | `lambda/utils.py:126` `split_long_message()` | char-slicing at 4060 + injects `"<header>: i of n"` | results.py engine headers, chatbot `/errors` logs |
 | F5 | inline `f"*__{engine}__*"` header (`lambda/results.py:37`) | builds MarkdownV2 underline/bold label | results.py |
@@ -204,7 +204,7 @@ Input `Markdown: *bold* _it_ __u__ ~s~ ||s|| code `x` [lnk](https://a.b) a_b c*d
 - **Phase 2 — raw-content envelope.** Engines stop pre-escaping; results render
   (compat mode). Feature flag `markup.migrate_envelope` (default on after soak in dev).
 - **Phase 3 — flip renderer per surface** behind flags: `markup.renderer.gemini` →
-  `…monsterapi` → `…deepl` → help/static → voice; each with a canary chat + alarm on
+  `…ollama (llama/qwen)` → `…deepl` → help/static → voice; each with a canary chat + alarm on
   `BadRequest`.
 - **Phase 4 — adopt the native engine (gated).** When PTB ships Bot API 10.1 support
   (milestone v23 upstream):
