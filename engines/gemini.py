@@ -15,7 +15,9 @@ logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 engine_type = "gemini"
-model = "gemini-2.5-pro"
+# Current stable Gemini model (GA, Sept 2026). For the pro-tier preview
+# instead, use "gemini-3.1-pro-preview".
+model = "gemini-3.8-flash"
 
 bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
 result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")

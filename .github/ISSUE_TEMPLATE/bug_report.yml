@@ -81,12 +81,10 @@ body:
       description: Which AI engine is involved? Select all that apply or "Not engine-specific"
       options:
         - Not engine-specific
-        - Claude (Anthropic)
         - Gemini (Google)
-        - ChatGPT (OpenAI)
-        - Copilot (Microsoft)
-        - Bing
-        - Image generation (Ideogram / DALL-E)
+        - LLama (MonsterAPI)
+        - Image generation (Ideogram)
+        - Translation (DeepL)
         - Voice / transcription
         - Multiple engines
     validations:

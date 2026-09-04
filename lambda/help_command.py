@@ -14,7 +14,7 @@ async def help_handler(update: Update, context: CallbackContext) -> None:
     logging.info(update.message.text)
     text = update.message.text.strip().lower()
     if text.endswith("tr"):
-        message = """\/tr \- Translates text to one or multiple languages\. 
+        message = r"""\/tr \- Translates text to one or multiple languages\. 
 Target language can be set either clicking menu button *or* typing in language code\(s\) by hands\. 
 You also can set languages separated with commas directly in the \/tr command, like this: \/tr pl,ru - in this case bot skips the question about language.  
 Several language codes must be separated by comma\. Example: _pl,ru,en\-gb_
@@ -52,31 +52,30 @@ SV    Swedish
 TR    Turkish
 UA    Ukrainian"""  # noqa: E501
     elif text.endswith("imagine"):
-        message = """\/imagine \- Creating images using *DALL\-E* AI engine\. Usage: \/imagine PROMPT
+        message = r"""\/imagine \- Creating images using *Ideogram\.ai* engine\. Usage: \/imagine PROMPT
 Example: \/imagine Cute kitty plays with yarn ball"""  # noqa: E501
     elif text.endswith("ideogram"):
-        message = """\/ideogram \- Creating images and typographics using *Ideogram.ai* engine\. Usage: \/imagine PROMPT
-Example: \/imagine Cute kitty plays with yarn ball"""  # noqa: E501
+        message = r"""\/ideogram \- Creating images and typographics using *Ideogram\.ai* engine\. Usage: \/ideogram PROMPT
+Example: \/ideogram Cute kitty plays with yarn ball"""  # noqa: E501
     elif (
         text.endswith("creative")
         or text.endswith("balanced")
         or text.endswith("precise")
     ):
-        message = """Sets the tone of responses for engines that support it\. Each mode will start a new conversation\.
+        message = r"""Sets the tone of responses for engines that support it\. Each mode will start a new conversation\.
 Available values are:
     \• *creative* \(default\)\. More imaginative responses, suitable for creative writing and brainstorming\.
     \• *balanced*\. Balanced mix of information and creativity\.
     \• *precise*\. Concise and factual responses\."""  # noqa: E501
     elif text.endswith("engines"):
-        message = """\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
-Example: \/engines gemini,claude,llama \- all listed engines will respond simultaneously\.
+        message = r"""\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
+Example: \/engines gemini,llama \- all listed engines will respond simultaneously\.
 This command persists its value in the user configuration, so it will work until any of following commands applied:
     \• \/llama
-    \• \/claude
     \• \/gemini
     \• \/engines"""  # noqa: E501
     else:
-        message = """If you need help with bot command, please type the command  
+        message = r"""If you need help with bot command, please type the command  
     with \/help prefix, for example *\/help tr*"""
 
     await update.message.reply_text(message, parse_mode=constants.ParseMode.MARKDOWN_V2)
@@ -84,7 +83,7 @@ This command persists its value in the user configuration, so it will work until
 
 async def start_handler(update: Update, context: CallbackContext) -> None:
     logging.info(update.message.text)
-    message = """Welcome to chat with AI bot\! Here you can get answers from different LLMs, draw images from your prompts with Ideogram\.ai and translate text with DeepL API\.
+    message = r"""Welcome to chat with AI bot\! Here you can get answers from different LLMs, draw images from your prompts with Ideogram\.ai and translate text with DeepL API\.
 Supported commands are:
 
 \/help \- Get help on a command\. Usage: \/help COMMAND
@@ -92,7 +91,6 @@ Supported commands are:
 \/imagine \- Generate images using Ideogram\.ai engine
 \/ideogram \- Generate images using Ideogram\.ai engine
 \/llama \- Switch answers to Meta LLama2 AI model
-\/claude \- Switch answers to Anthropic Claude\.ai AI model
 \/gemini \- Switch answers to Google Gemini AI model
 \/engines \- Activates multiple AI engines at once, comma separated list
 \/creative \- Set tone of responses to more creative \(Default\)

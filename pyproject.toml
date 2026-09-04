@@ -3,32 +3,28 @@ name = "chatgpt-telegram-bot"
 version = "0.1.0"
 description = "Telegram bot with AI support for different models"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     # Runtime dependencies only - no dev or CDK dependencies here
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.0.3",
-    "pytest-cov",
-    "aws-cdk-lib>=2.257.0",
-    "constructs>=10.1.0,<11.0.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "aws-cdk-lib>=2.268.0",
+    "constructs>=10.8.1,<11.0.0",
 ]
 lambda = [
-    "python-telegram-bot>=22.7",
-    "websockets",
+    "python-telegram-bot>=22.8",
     "requests>=2.34.2",
-    "boto3>=1.43.16",
-    "wget",
+    "boto3>=1.43.89",
 ]
 engines = [
-    "google-genai>=2.6.0",
-    "deepl>=1.30.0",
-    "websockets>=16.0",
+    "google-genai>=2.22.0",
+    "deepl>=1.32.0",
     "requests>=2.34.2",
-    "requests_toolbelt>=1.0.0",
-    "curl_cffi>=0.15.0",
-    "boto3>=1.43.16",
+    "curl_cffi>=0.16.3",
+    "boto3>=1.43.89",
     "pyjwt>=2.13.0",
 ]

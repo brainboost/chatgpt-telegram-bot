@@ -1,0 +1,19 @@
+# VCS
+.git
+.worktrees
+
+# Python
+.venv
+__pycache__/
+*.py[cod]
+.pytest_cache
+.ruff_cache
+
+# CDK
+cdk.out
+.cdk.staging
+
+# Agent tooling / local config
+.claude
+.roo
+.vscode

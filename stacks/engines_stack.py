@@ -282,30 +282,6 @@ class EnginesStack(Stack):
             aws_lambda_event_sources.SqsEventSource(resultQueue)
         )
 
-        # Claude
-
-        claude_log_group = aws_logs.LogGroup(
-            self,
-            "ClaudeHandlerLogGroup",
-            log_group_name="/aws/lambda/ClaudeHandler",
-            retention=aws_logs.RetentionDays.TWO_WEEKS,
-            removal_policy=RemovalPolicy.DESTROY,
-        )
-
-        self.__create_engine(
-            engine_name="Claude",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["text", "command"]
-                ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["claude"]
-                ),
-            },
-            handler=f"{ASSET_PATH}.claude.sns_handler",
-            log_group=claude_log_group,
-        )
-
         # Gemini
 
         gemini_log_group = aws_logs.LogGroup(
