@@ -319,6 +319,27 @@ manually if you really want them gone).
    update SSM **and** redeploy so warm instances pick it up.
 6. **Lambda crashes at cold start with SSM errors**: a parameter from `UPDATE_VARS.md` is
    missing, or was created as `SecureString` (must be `String`).
+7. **Deploy aborts: `AWS::Logs::LogGroup` … "already exists" (early validation)** — the stacks
+   declare explicit log groups (`/aws/lambda/<Handler>`, 2-week retention), but those groups
+   already exist as **Lambda-created resources that CloudFormation does not own** (left over
+   from a stack version that did not declare them). CFN cannot adopt them through a normal
+   update, so this is a **one-time per-account** fix: delete the stale groups — only the ones
+   the deploy error lists — and redeploy (their old logs are lost; CloudWatch recreates the
+   groups on the next function run, and after this deploy CFN owns them for good):
+   ```bash
+   aws logs delete-log-group --log-group-name /aws/lambda/DeepLHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/GeminiHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/IdeogramHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/IdeogramResultHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/LLamaHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/BotHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/ResultProcessingHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/WebhookTriggerHandler
+   cdk deploy --all --require-approval never
+   ```
+   Run against the same account+region as the deploy, and repeat for each stage account before
+   its first deploy of this code. Handlers that never ran before (e.g. `QwenHandler`) are not
+   affected — their groups do not exist yet.
 
 ---
 
