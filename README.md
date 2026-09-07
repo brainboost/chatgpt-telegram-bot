@@ -340,6 +340,18 @@ manually if you really want them gone).
    Run against the same account+region as the deploy, and repeat for each stage account before
    its first deploy of this code. Handlers that never ran before (e.g. `QwenHandler`) are not
    affected — their groups do not exist yet.
+8. **Deploy fails: `AWS::Lambda::Function` … "does not have permission to access the provided
+   code artifact"** — while updating a container-image function, Lambda cannot pull the new
+   image from ECR at deploy time. Known causes: the ECR asset-repository resource policy for
+   the Lambda service is missing/stale (e.g. after a `cdk bootstrap` run, see
+   [aws/aws-cdk#18473](https://github.com/aws/aws-cdk/issues/18473)), or an ordering race in a
+   large change set. **First just retry the deploy** — the race usually does not reproduce.
+   If it persists: both stacks now grant their Lambda execution roles
+   `ecr:GetAuthorizationToken/BatchCheckLayerAvailability/BatchGetImage/GetDownloadUrlForLayer`
+   (role-based image retrieval, robust regardless of repository policy); alternatively repair
+   the repository policy of the specific repo the function points at (find it with
+   `aws lambda get-function --function-name IdeogramHandler --query 'Code.ImageUri'`, then
+   `aws ecr set-repository-policy`).
 
 ---
 

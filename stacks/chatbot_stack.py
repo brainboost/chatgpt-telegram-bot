@@ -67,6 +67,22 @@ class ChatBotStack(Stack):
             )
         )
 
+        # Container-image functions: Lambda must be able to pull the image from ECR when the
+        # function is created/updated (deployment-time image retrieval). Granting the
+        # execution role ECR read access makes this robust even if the ECR asset-repository
+        # resource policy for the Lambda service is missing or stale.
+        lambda_role.add_to_policy(
+            aws_iam.PolicyStatement(
+                actions=[
+                    "ecr:GetAuthorizationToken",
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:BatchGetImage",
+                    "ecr:GetDownloadUrlForLayer",
+                ],
+                resources=["*"],
+            )
+        )
+
         bucket = aws_s3.Bucket(
             self,
             f"{construct_id}-s3-Bucket",
