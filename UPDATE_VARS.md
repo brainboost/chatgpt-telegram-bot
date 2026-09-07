@@ -46,7 +46,7 @@ aws ssm put-parameter --name IDEOGRAM_USER       --type String --value "<firebas
 ```
 
 **Per-engine model tags** (Lambda env, set by EnginesStack; change + redeploy to override):
-`llama` → `llama4:maverick-cloud`, `qwen` → `qwen3.5:cloud` (env `OLLAMA_MODEL` / `OLLAMA_ENGINE`).
+`llama` → `llama4:maverick`, `qwen` → `qwen3.5:cloud` (env `OLLAMA_MODEL` / `OLLAMA_ENGINE`).
 Cloud model availability varies per Ollama account — verify the exact tag your account offers
 under https://ollama.com/search?c=cloud before relying on an engine.
 

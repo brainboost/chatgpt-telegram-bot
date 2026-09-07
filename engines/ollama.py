@@ -20,7 +20,7 @@ logging.getLogger().setLevel("INFO")
 #                   "qwen3.5:cloud"
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "https://ollama.com/v1")
 engine_type = os.environ.get("OLLAMA_ENGINE", "llama")
-model = os.environ.get("OLLAMA_MODEL", "llama4:maverick-cloud")
+model = os.environ.get("OLLAMA_MODEL", "llama4:maverick")
 request_timeout = 270  # seconds; engines have a 5-minute Lambda timeout
 
 api_key = read_ssm_param(param_name="OLLAMA_API_KEY")

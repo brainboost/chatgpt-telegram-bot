@@ -157,7 +157,7 @@ class EnginesStack(Stack):
             log_group=llama_log_group,
             environment={
                 "OLLAMA_ENGINE": "llama",
-                "OLLAMA_MODEL": "llama4:maverick-cloud",
+                "OLLAMA_MODEL": "llama4:maverick",
             },
         )
 
@@ -177,9 +177,7 @@ class EnginesStack(Stack):
                 "type": aws_sns.SubscriptionFilter.string_filter(
                     allowlist=["text", "command"]
                 ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["qwen"]
-                ),
+                "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["qwen"]),
             },
             handler=f"{ASSET_PATH}.ollama.sns_handler",
             log_group=qwen_log_group,

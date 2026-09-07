@@ -81,7 +81,7 @@ parts labelled `i of n`. In **groups**, the bot only reacts when it is addressed
 |---|---|---|---|
 | `gemini` | Google Gemini 3 (`gemini-3.8-flash`, GA) | Text chat | `engines/gemini.py` |
 | `qwen` | Alibaba Qwen 3.5 (Ollama Cloud, `qwen3.5:cloud`) | Text chat (sync) | `engines/ollama.py` |
-| `llama` | Meta Llama 4 (Ollama Cloud, `llama4:maverick-cloud`) | Text chat (sync) | `engines/ollama.py` |
+| `llama` | Meta Llama 4 (Ollama Cloud, `llama4:maverick`) | Text chat (sync) | `engines/ollama.py` |
 | Ideogram | ideogram.ai | Image generation (`/imagine`, `/ideogram`), async via polled queue | `engines/ideogram_img.py`, `engines/ideogram_result.py` |
 | DeepL | DeepL API | Translation (`/tr`) | `engines/deepl_tr.py` |
 
