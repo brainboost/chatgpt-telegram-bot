@@ -213,6 +213,17 @@ Each (account, region) pair must be bootstrapped once before the first CDK deplo
 cdk bootstrap aws://<ACCOUNT_ID>/<REGION>
 ```
 
+> ⚠️ **The bootstrap ("CDKToolkit") stack version is tied to the CDK CLI it was created
+> with, not to the code.** After upgrading `aws-cdk-lib` — this repo now pins 2.268.x, which
+> requires bootstrap **v30+** — re-run the same `cdk bootstrap` command **before** the next
+> deploy. Otherwise `cdk deploy` aborts with *"Bootstrap toolkit stack version 30 or later is
+> needed; current version: 27"* and, because the deploy role's permissions come from the
+> toolkit stack, it may also lack `cloudformation:DescribeEvents` (only granted by the newer
+> bootstrap template) → `AccessDenied` while reporting change-set validation failures.
+> Bootstrapping is idempotent: re-running it with a current CLI updates the toolkit stack and
+> its IAM roles in place. It needs CloudFormation + IAM rights on the `CDKToolkit` stack, so
+> run it with the account owner/administrator.
+
 ### Manual deployment (CLI)
 
 ```bash
@@ -259,7 +270,8 @@ OpenID Connect and never store long-lived AWS keys:
 | `deploy-prod.yml` | push to `main`, or `workflow_dispatch` | `prod` | `prod` |
 
 Pipeline steps (both files): checkout → assume AWS role (OIDC) → setup Node 22 + Python 3.14 →
-`uv sync --all-groups` → `cdk deploy --all --require-approval never`.
+`uv sync --all-groups` → `cdk bootstrap` (idempotent — upgrades a missing **or stale**
+CDKToolkit stack) → `cdk deploy --all --require-approval never`.
 
 Required repository/environment secrets:
 
@@ -273,8 +285,13 @@ with its own `AWS_ROLE`/`AWS_REGION`, pointing at its dedicated AWS account. Cre
 parameters listed in [`UPDATE_VARS.md`](UPDATE_VARS.md) in each account **before** the first
 workflow run (the workflows do not provision secrets).
 
-> If your workflow run fails on a first deploy in a fresh account, run
-> `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually (or add a bootstrap step).
+> The workflows bootstrap before deploying, so a missing **or outdated** toolkit stack is
+> upgraded automatically on the next run — **provided the `AWS_ROLE` may update the
+> `CDKToolkit` stack** (bootstrap needs CloudFormation + IAM rights). If your role is
+> deploy-only, run `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually with an
+> administrator, and re-run it after every `aws-cdk-lib` upgrade that raises the required
+> bootstrap version (the deploy fails with a *"Bootstrap toolkit stack version … is needed"*
+> error until you do).
 
 ### Undeploying
 
