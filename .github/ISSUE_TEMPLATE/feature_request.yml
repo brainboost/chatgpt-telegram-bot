@@ -112,10 +112,10 @@ body:
       label: Feature Category
       description: What area of the project does this feature relate to?
       options:
-        - AI engine integration (Claude, Gemini, ChatGPT, Copilot, etc.)
+        - AI engine integration (Gemini, LLama, Qwen, etc.)
         - Bot commands & handlers (/start, /help, /imagine, /reset, etc.)
         - Conversation & context management
-        - Image generation (Ideogram, DALL-E, etc.)
+        - Image generation (Ideogram)
         - Voice & audio (transcription, speech)
         - User configuration & preferences
         - AWS infrastructure (CDK, Lambda, SNS/SQS, DynamoDB)

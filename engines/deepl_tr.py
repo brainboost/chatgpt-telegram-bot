@@ -35,7 +35,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
             logging.error(e)
             result = escape_markdown_v2(str(e))
 
-        payload["engine"] = lang.replace("-", "\-")
+        payload["engine"] = lang.replace("-", "\\-")
         payload["response"] = encode_message(result)
         sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
 

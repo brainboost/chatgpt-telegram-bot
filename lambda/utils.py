@@ -8,14 +8,14 @@ import zlib
 from functools import wraps
 
 import boto3
-import wget
+import requests
 from telegram import File, Update, constants
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-esc_pattern = re.compile(f"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
+esc_pattern = re.compile(fr"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
 
 
 def send_action(action):
@@ -77,8 +77,11 @@ async def generate_transcription(file) -> str:
     transcript = status["TranscriptionJob"]["Transcript"]["TranscriptFileUri"]  # type: ignore
     logging.info(transcript)
     output_location = f"/tmp/output_{message_id}.json"
-    wget.download(transcript, output_location)
-    with open(output_location) as f:
+    response = requests.get(transcript, timeout=60)
+    response.raise_for_status()
+    with open(output_location, "wb") as f:
+        f.write(response.content)
+    with open(output_location, encoding="utf-8") as f:
         output = json.load(f)
     return output["results"]["transcripts"][0]["transcript"]
 

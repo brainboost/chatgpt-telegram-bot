@@ -2,13 +2,11 @@
 name = "chatgpt-telegram-bot-lambda"
 version = "0.1.0"
 description = "Lambda functions for the Telegram bot"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
-  "python-telegram-bot>=22.7",
-  "websockets>=16.0",
+  "python-telegram-bot>=22.8",
   "requests>=2.34.2",
-  "boto3>=1.43.16",
-  "wget",
+  "boto3>=1.43.89",
 ]
 
 [dependency-groups]

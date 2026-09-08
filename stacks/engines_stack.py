@@ -55,6 +55,22 @@ class EnginesStack(Stack):
             )
         )
 
+        # Container-image functions: Lambda must be able to pull the image from ECR when the
+        # function is created/updated (deployment-time image retrieval). Granting the
+        # execution role ECR read access makes this robust even if the ECR asset-repository
+        # resource policy for the Lambda service is missing or stale.
+        self.lambda_role.add_to_policy(
+            aws_iam.PolicyStatement(
+                actions=[
+                    "ecr:GetAuthorizationToken",
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:BatchGetImage",
+                    "ecr:GetDownloadUrlForLayer",
+                ],
+                resources=["*"],
+            )
+        )
+
         # SNS request topic (one for all engines)
 
         self.request_topic = aws_sns.Topic(
@@ -133,7 +149,7 @@ class EnginesStack(Stack):
             log_group=deepl_log_group,
         )
 
-        # LLama2
+        # LLama 4 (Ollama Cloud)
 
         llama_log_group = aws_logs.LogGroup(
             self,
@@ -153,73 +169,38 @@ class EnginesStack(Stack):
                     allowlist=["llama"]
                 ),
             },
-            handler=f"{ASSET_PATH}.monsterapi.sns_handler",
+            handler=f"{ASSET_PATH}.ollama.sns_handler",
             log_group=llama_log_group,
+            environment={
+                "OLLAMA_ENGINE": "llama",
+                "OLLAMA_MODEL": "llama4:maverick",
+            },
         )
 
-        # Add monsterapi callback handler
-        dlq = aws_sqs.Queue(
-            self,
-            "MonsterApi-Callback-DLQ",
-            queue_name="MonsterApi-Callback-DLQ",
-            removal_policy=RemovalPolicy.DESTROY,
-            encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
-            retention_period=Duration.days(5),
-            enforce_ssl=True,
-        )
+        # Qwen 3.5 (Ollama Cloud)
 
-        # Create log group for monsterapi callback handler
-        monsterapi_callback_log_group = aws_logs.LogGroup(
+        qwen_log_group = aws_logs.LogGroup(
             self,
-            "MonsterApiCallbackHandlerLogGroup",
-            log_group_name="/aws/lambda/MonsterApiCallbackHandler",
+            "QwenHandlerLogGroup",
+            log_group_name="/aws/lambda/QwenHandler",
             retention=aws_logs.RetentionDays.TWO_WEEKS,
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        api_callback = DockerImageFunction(
-            self,
-            "MonsterApiCallbackHandler",
-            function_name="MonsterApiCallbackHandler",
-            code=DockerImageCode.from_image_asset(
-                directory=self.docker_file_path,
-                file="Dockerfile",
-                exclude=["cdk.out"],
-                cmd=[f"{ASSET_PATH}.monsterapi_result.callback_handler"],
-            ),
-            timeout=Duration.minutes(3),
-            memory_size=256,
-            role=self.lambda_role,
-            log_group=monsterapi_callback_log_group,
-            dead_letter_queue_enabled=True,
-            dead_letter_queue=dlq,
-        )
-        dlq.grant_send_messages(api_callback)
-        error_alarm = aws_cloudwatch.Alarm(
-            self,
-            "MonsterApiCallbackDlqErrors",
-            alarm_name="MonsterApiCallbackDlqErrors",
-            alarm_description="Alarm when MonsterApi callback DLQ has messages",
-            metric=dlq.metric_approximate_number_of_messages_visible(),
-            threshold=0,
-            evaluation_periods=1,
-            comparison_operator=aws_cloudwatch.ComparisonOperator.GREATER_THAN_THRESHOLD,
-        )
-
-        error_alarm.add_alarm_action(aws_cloudwatch_actions.SnsAction(self.alarm_topic))
-
-        callback_lambda_url = api_callback.add_function_url(
-            auth_type=_lambda.FunctionUrlAuthType.NONE,
-            cors={
-                "allowed_origins": ["https://*"],
-                "allowed_methods": [_lambda.HttpMethod.POST],
+        self.__create_engine(
+            engine_name="Qwen",
+            sns_filter_policy={
+                "type": aws_sns.SubscriptionFilter.string_filter(
+                    allowlist=["text", "command"]
+                ),
+                "engines": aws_sns.SubscriptionFilter.string_filter(allowlist=["qwen"]),
             },
-        )
-        aws_ssm.StringParameter(
-            self,
-            "MonsterApiCallbackURLParam",
-            parameter_name="MONSTERAPI_CALLBACK_URL",
-            string_value=callback_lambda_url.url,
+            handler=f"{ASSET_PATH}.ollama.sns_handler",
+            log_group=qwen_log_group,
+            environment={
+                "OLLAMA_ENGINE": "qwen",
+                "OLLAMA_MODEL": "qwen3.5:cloud",
+            },
         )
 
         # Ideogram
@@ -282,30 +263,6 @@ class EnginesStack(Stack):
             aws_lambda_event_sources.SqsEventSource(resultQueue)
         )
 
-        # Claude
-
-        claude_log_group = aws_logs.LogGroup(
-            self,
-            "ClaudeHandlerLogGroup",
-            log_group_name="/aws/lambda/ClaudeHandler",
-            retention=aws_logs.RetentionDays.TWO_WEEKS,
-            removal_policy=RemovalPolicy.DESTROY,
-        )
-
-        self.__create_engine(
-            engine_name="Claude",
-            sns_filter_policy={
-                "type": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["text", "command"]
-                ),
-                "engines": aws_sns.SubscriptionFilter.string_filter(
-                    allowlist=["claude"]
-                ),
-            },
-            handler=f"{ASSET_PATH}.claude.sns_handler",
-            log_group=claude_log_group,
-        )
-
         # Gemini
 
         gemini_log_group = aws_logs.LogGroup(
@@ -336,8 +293,20 @@ class EnginesStack(Stack):
         sns_filter_policy: any,
         handler: str,
         log_group: aws_logs.LogGroup,
+        environment: dict = None,
     ) -> None:
         """Creates infrastructure for the AI engine handler (queue-lambda-alarm)."""
+
+        lambda_config = {
+            "timeout": Duration.minutes(5),
+            "memory_size": 256,
+            "log_group": log_group,
+            "role": self.lambda_role,
+            "dead_letter_queue_enabled": True,
+            "dead_letter_queue": self.dlq,
+        }
+        if environment:
+            lambda_config["environment"] = environment
 
         lambda_fn = DockerImageFunction(
             self,
@@ -349,12 +318,7 @@ class EnginesStack(Stack):
                 exclude=["cdk.out"],
                 cmd=[handler],
             ),
-            timeout=Duration.minutes(5),
-            memory_size=256,
-            log_group=log_group,
-            role=self.lambda_role,
-            dead_letter_queue_enabled=True,
-            dead_letter_queue=self.dlq,
+            **lambda_config,
         )
         lambda_fn.add_event_source(
             aws_lambda_event_sources.SnsEventSource(

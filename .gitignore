@@ -156,3 +156,6 @@ dmypy.json
 .cache/uv/
 # Local uv configuration
 .uv.cfg
+
+# Nested git worktrees used during development
+.worktrees/
