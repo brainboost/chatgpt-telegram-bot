@@ -44,6 +44,10 @@ jobs:
         run: |
           source .venv/bin/activate
           uv sync --all-packages --all-groups
+      - name: Build Lambda bundles (uv, no Docker)
+        run: |
+          source .venv/bin/activate
+          python scripts/build_bundles.py
       - name: Deploy stack
         run: |
           source .venv/bin/activate
