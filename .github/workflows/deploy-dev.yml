@@ -44,11 +44,6 @@ jobs:
         run: |
           source .venv/bin/activate
           uv sync --all-packages --all-groups
-      - name: Bootstrap CDK (idempotent; updates stale toolkit stack)
-        run: |
-          source .venv/bin/activate
-          ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          cdk bootstrap "aws://${ACCOUNT_ID}/${AWS_REGION}"
       - name: Deploy stack
         run: |
           source .venv/bin/activate

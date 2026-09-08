@@ -270,8 +270,11 @@ OpenID Connect and never store long-lived AWS keys:
 | `deploy-prod.yml` | push to `main`, or `workflow_dispatch` | `prod` | `prod` |
 
 Pipeline steps (both files): checkout → assume AWS role (OIDC) → setup Node 22 + Python 3.14 →
-`uv sync --all-groups` → `cdk bootstrap` (idempotent — upgrades a missing **or stale**
-CDKToolkit stack) → `cdk deploy --all --require-approval never`.
+`uv sync --all-groups` → `cdk deploy --all --require-approval never`. Bootstrapping is **not**
+part of the pipeline: a least-privilege `AWS_ROLE` cannot manage the `CDKToolkit` stack (a
+bootstrap step fails with `AccessDenied` on `cloudformation:DescribeStacks`), so bootstrap each
+(account, region) manually with an administrator — see "One-time bootstrap" — before the first
+run and after every `aws-cdk-lib` upgrade.
 
 Required repository/environment secrets:
 
@@ -285,13 +288,12 @@ with its own `AWS_ROLE`/`AWS_REGION`, pointing at its dedicated AWS account. Cre
 parameters listed in [`UPDATE_VARS.md`](UPDATE_VARS.md) in each account **before** the first
 workflow run (the workflows do not provision secrets).
 
-> The workflows bootstrap before deploying, so a missing **or outdated** toolkit stack is
-> upgraded automatically on the next run — **provided the `AWS_ROLE` may update the
-> `CDKToolkit` stack** (bootstrap needs CloudFormation + IAM rights). If your role is
-> deploy-only, run `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually with an
-> administrator, and re-run it after every `aws-cdk-lib` upgrade that raises the required
-> bootstrap version (the deploy fails with a *"Bootstrap toolkit stack version … is needed"*
-> error until you do).
+> The workflows do **not** bootstrap: a deploy-only `AWS_ROLE` (typical least-privilege CDK
+> setup) cannot manage the `CDKToolkit` stack — a bootstrap step run as that role fails with
+> `AccessDenied` on `cloudformation:DescribeStacks`. Instead, run
+> `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually with an administrator, and re-run it
+> after every `aws-cdk-lib` upgrade that raises the required bootstrap version (the deploy
+> fails with a *"Bootstrap toolkit stack version … is needed"* error until you do).
 
 ### Undeploying
 
