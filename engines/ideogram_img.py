@@ -1,6 +1,6 @@
 import json
 import logging
-from  datetime import datetime, UTC
+from datetime import UTC, datetime
 from typing import Any
 
 import boto3
@@ -44,7 +44,7 @@ ideogram_result_queue = sqs.get_queue_url(QueueName="Ideogram-Result-Queue")["Qu
 
 def is_expired(id_token: str) -> bool:
     try:
-        options = dict({})
+        options = {}
         options.setdefault("verify_signature", False)
         claims = jwt.decode(jwt=id_token, options=options)
         exp = claims["exp"]
@@ -58,6 +58,7 @@ def is_expired(id_token: str) -> bool:
         logging.error("invalid token")
         logging.error(str(argument))
         return True
+
 
 def refresh_iss_tokens(refresh_token: str) -> dict:
     request_ref = "https://securetoken.googleapis.com/v1/token?key=" + id_key
@@ -73,7 +74,7 @@ def refresh_iss_tokens(refresh_token: str) -> dict:
         request_ref,
         headers=headers,
         data=data,
-        impersonate=browser_version, # type: ignore
+        impersonate=browser_version,  # type: ignore
     )
     response_object_json = response_object.json()
     tokens = {
@@ -132,9 +133,9 @@ def request_images(prompt: str) -> str:
         "model_version": "V_1_5",
         "use_autoprompt_option": "ON",
         "prompt": prompt,
-        "sampling_speed":0,
-        "style_expert":"AUTO",
-        "resolution":{"width":1024,"height":1024},
+        "sampling_speed": 0,
+        "style_expert": "AUTO",
+        "resolution": {"width": 1024, "height": 1024},
         "user_id": user_id,
     }
     logging.info(payload)
@@ -152,7 +153,7 @@ def request_images(prompt: str) -> str:
         url=post_task_url,
         headers=headers,
         data=json.dumps(payload),
-        impersonate=browser_version, # type: ignore
+        impersonate=browser_version,  # type: ignore
     )
     if not response.ok:
         logging.error(response.text)
