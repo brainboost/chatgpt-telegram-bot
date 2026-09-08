@@ -14,10 +14,14 @@ from aws_cdk import (
     aws_ssm,
 )
 from aws_cdk import aws_lambda as _lambda
-from aws_cdk.aws_lambda import DockerImageCode, DockerImageFunction
 from constructs import Construct
 
 ASSET_PATH = "engines"
+
+
+def engines_bundle_dir() -> str:
+    """Staging dir produced by scripts/build_bundles.py (code + deps, no Docker)."""
+    return str(Path(__file__).resolve().parent.parent / "build" / "bundles" / "engines")
 
 
 class EnginesStack(Stack):
@@ -50,22 +54,6 @@ class EnginesStack(Stack):
                     "sqs:DeleteMessage",
                     "sns:ReceiveMessage",
                     "sns:Publish",
-                ],
-                resources=["*"],
-            )
-        )
-
-        # Container-image functions: Lambda must be able to pull the image from ECR when the
-        # function is created/updated (deployment-time image retrieval). Granting the
-        # execution role ECR read access makes this robust even if the ECR asset-repository
-        # resource policy for the Lambda service is missing or stale.
-        self.lambda_role.add_to_policy(
-            aws_iam.PolicyStatement(
-                actions=[
-                    "ecr:GetAuthorizationToken",
-                    "ecr:BatchCheckLayerAvailability",
-                    "ecr:BatchGetImage",
-                    "ecr:GetDownloadUrlForLayer",
                 ],
                 resources=["*"],
             )
@@ -110,7 +98,6 @@ class EnginesStack(Stack):
             endpoint=notify_email,
             protocol=aws_sns.SubscriptionProtocol.EMAIL,
         )
-        self.docker_file_path = str(Path(__file__).parent.parent.resolve())
 
         request_dlq_alarm = aws_cloudwatch.Alarm(
             self,
@@ -126,7 +113,7 @@ class EnginesStack(Stack):
             aws_cloudwatch_actions.SnsAction(self.alarm_topic)
         )
 
-        # AI Engine Lambdas
+        # AI Engine Lambdas (ZIP code assets; runtime-managed Python, no ECR/images)
 
         # DeepL
 
@@ -244,16 +231,13 @@ class EnginesStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        resultHandler = DockerImageFunction(
+        resultHandler = _lambda.Function(
             self,
             "IdeogramResultHandler",
             function_name="IdeogramResultHandler",
-            code=DockerImageCode.from_image_asset(
-                directory=self.docker_file_path,
-                file="Dockerfile",
-                exclude=["cdk.out"],
-                cmd=[f"{ASSET_PATH}.ideogram_result.sqs_handler"],
-            ),
+            runtime=_lambda.Runtime.PYTHON_3_14,
+            code=_lambda.Code.from_asset(engines_bundle_dir()),
+            handler=f"{ASSET_PATH}.ideogram_result.sqs_handler",
             log_group=ideogram_result_log_group,
             role=self.lambda_role,
             dead_letter_queue_enabled=True,
@@ -308,16 +292,13 @@ class EnginesStack(Stack):
         if environment:
             lambda_config["environment"] = environment
 
-        lambda_fn = DockerImageFunction(
+        lambda_fn = _lambda.Function(
             self,
             f"{engine_name}Handler",
             function_name=f"{engine_name}Handler",
-            code=DockerImageCode.from_image_asset(
-                directory=self.docker_file_path,
-                file="Dockerfile",
-                exclude=["cdk.out"],
-                cmd=[handler],
-            ),
+            runtime=_lambda.Runtime.PYTHON_3_14,
+            code=_lambda.Code.from_asset(engines_bundle_dir()),
+            handler=handler,
             **lambda_config,
         )
         lambda_fn.add_event_source(

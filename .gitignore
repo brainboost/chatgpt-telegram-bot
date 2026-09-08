@@ -159,3 +159,5 @@ dmypy.json
 
 # Nested git worktrees used during development
 .worktrees/
+# CDK Lambda bundle staging (produced by scripts/build_bundles.py)
+build/

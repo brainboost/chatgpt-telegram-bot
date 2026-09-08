@@ -99,7 +99,7 @@ deployed as separate Lambda functions; see `stacks/engines_stack.py`.
 
 Three CDK stacks (`app.py`):
 
-1. **EnginesStack** — SNS request topic, per-engine Docker Lambda functions (DLQ + alarms)
+1. **EnginesStack** — SNS request topic, per-engine Python Lambda functions (DLQ + alarms)
    and the Ideogram polling queue/result handler.
 2. **DatabaseStack** — DynamoDB tables: `user-configurations`, `user-conversations`,
    `user-context` (TTL 60 d), `request-jobs` (TTL 10 d).
@@ -121,8 +121,9 @@ Telegram webhook ──► BotHandler (Function URL)
 ```
 
 Configuration is read from **SSM Parameter Store at Lambda cold start** and state lives in
-DynamoDB. All Lambda functions run the same container image built from the repo-root
-`Dockerfile`; the entry point is chosen per function via the CDK `cmd`
+DynamoDB. All Lambda functions are plain **Python 3.14 ZIP functions** (`Runtime.PYTHON_3_14`);
+each project's code and locked dependencies are bundled by `scripts/build_bundles.py` with uv
+(no Docker, no ECR). The entry point is chosen per function via the CDK `handler`
 (e.g. `lambda.chatbot.telegram_api_handler`).
 
 ---
@@ -135,7 +136,7 @@ stacks/                    CDK stack definitions (chatbot, engines, database)
 lambda/                    Telegram bot Lambdas: chatbot, results, webhook, utils, help
 engines/                   AI engine handlers: gemini, ollama (llama + qwen), ideogram, deepl + shared utils
 tests/                     pytest tests (live tests skipped without AWS)
-Dockerfile                 Multi-stage Lambda image (Python 3.14, uv + lockfiles)
+scripts/build_bundles.py   Bundles lambda/ & engines/ code + locked deps into ZIPs (uv, no Docker)
 pyproject.toml             Root project: dev/CDK deps + lambda/engines dependency groups
 UPDATE_VARS.md             AWS configuration checklist (SSM params, S3 auth files, secrets)
 docs/MARKDOWN_UPGRADE_PLAN.md   Plan for Telegram Rich Messages / formatting migration
@@ -153,12 +154,13 @@ package installed by [uv](https://docs.astral.sh/uv/); the `cdk` **CLI** is a No
 program pinned as a project-local devDependency in `package.json` (run via `npx aws-cdk`). Node
 is only the CLI's runtime — no application code depends on it.
 
-Requirements: Python 3.14+ with uv, Node.js 20+ (for the pinned CLI), Docker (BuildKit), AWS
-credentials.
+Requirements: Python 3.14+ with uv, Node.js 20+ (for the pinned CLI), AWS credentials. No
+Docker is needed anywhere — Lambda bundles are produced by uv.
 
 ```bash
 uv sync --all-groups            # install dev/CDK + lambda + engines deps into .venv
 npm ci                          # install the pinned aws-cdk CLI into ./node_modules
+python scripts/build_bundles.py # build lambda/ & engines/ ZIP bundles (uv, no Docker)
 
 uv run pytest                   # unit tests (AWS/live tests are @pytest.mark.skip)
 ```
@@ -213,10 +215,9 @@ Before the first deployment to an account/region, complete the checklist in
    created by ChatBotStack, so upload the file right after the first deploy and before the
    first `/imagine`.
 3. Confirm the SNS **alarm e-mail** subscription (one click in the inbox).
-4. Have Docker running (image assets are built during synth/deploy). Docker is only needed on
-   the machine that runs `cdk deploy` / `cdk synth` — the CI runners provide it. A machine
-   without Docker (e.g. a Windows laptop) can still run `cdk bootstrap`, push code, and let CI
-   perform the actual deploys.
+4. Build the Lambda bundles: `python scripts/build_bundles.py` (see "Local development").
+   No Docker is required anywhere — bundles are built with uv, and deploys run from CI or
+   any machine with uv.
 
 ### One-time bootstrap
 
@@ -245,9 +246,10 @@ export CDK_ACCOUNT=<ACCOUNT_ID>
 export CDK_REGION=<REGION>
 export STAGE=dev                 # or prod
 
-# 2. Install the pinned CDK CLI (project-local) and Python deps
+# 2. Install the pinned CDK CLI (project-local), Python deps, and Lambda bundles
 npm ci
 uv sync --all-groups
+python scripts/build_bundles.py
 
 # 3. Sanity-check (list stacks)
 npx aws-cdk ls                   # EnginesStack  DatabaseStack  ChatBotStack
@@ -268,9 +270,10 @@ Notes:
 
 - `npx aws-cdk deploy --all` runs EnginesStack, DatabaseStack, ChatBotStack in dependency order;
   ChatBotStack's webhook trigger registers the Telegram webhook at the end of the deploy.
-- Deploying requires Docker (container image assets are built during synthesis/deploy).
+- No Docker required: `python scripts/build_bundles.py` produces the ZIP bundles with uv
+  before deploying; the bundles are uploaded as plain S3 assets.
 - If you change only Lambda code, redeploy ChatBotStack and/or EnginesStack (the affected
-  image layer is rebuilt).
+  bundle is rebuilt and its asset re-uploaded).
 
 ### CI/CD deployment (GitHub Actions)
 
@@ -283,7 +286,8 @@ OpenID Connect and never store long-lived AWS keys:
 | `deploy-prod.yml` | push to `main`, or `workflow_dispatch` | `prod` | `prod` |
 
 Pipeline steps (both files): checkout → assume AWS role (OIDC) → setup Node 22 + Python 3.14 →
-`npm ci` (pinned CDK CLI) → `uv sync --all-groups` → `npx aws-cdk deploy --all
+`npm ci` (pinned CDK CLI) → `uv sync --all-groups` → `python scripts/build_bundles.py` →
+`npx aws-cdk deploy --all
 --require-approval never`. Bootstrapping is **not**
 part of the pipeline: a least-privilege `AWS_ROLE` cannot manage the `CDKToolkit` stack (a
 bootstrap step fails with `AccessDenied` on `cloudformation:DescribeStacks`), so bootstrap each

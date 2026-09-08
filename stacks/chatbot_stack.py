@@ -16,10 +16,14 @@ from aws_cdk import (
     triggers,
 )
 from aws_cdk import aws_lambda as _lambda
-from aws_cdk.aws_lambda import Code, DockerImageCode, DockerImageFunction
 from constructs import Construct
 
 LAMBDA_ASSET_PATH = "lambda"
+
+
+def chatbot_bundle_dir() -> str:
+    """Staging dir produced by scripts/build_bundles.py (code + deps, no Docker)."""
+    return str(Path(__file__).resolve().parent.parent / "build" / "bundles" / "lambda")
 
 
 class ChatBotStack(Stack):
@@ -67,22 +71,6 @@ class ChatBotStack(Stack):
             )
         )
 
-        # Container-image functions: Lambda must be able to pull the image from ECR when the
-        # function is created/updated (deployment-time image retrieval). Granting the
-        # execution role ECR read access makes this robust even if the ECR asset-repository
-        # resource policy for the Lambda service is missing or stale.
-        lambda_role.add_to_policy(
-            aws_iam.PolicyStatement(
-                actions=[
-                    "ecr:GetAuthorizationToken",
-                    "ecr:BatchCheckLayerAvailability",
-                    "ecr:BatchGetImage",
-                    "ecr:GetDownloadUrlForLayer",
-                ],
-                resources=["*"],
-            )
-        )
-
         bucket = aws_s3.Bucket(
             self,
             f"{construct_id}-s3-Bucket",
@@ -109,8 +97,6 @@ class ChatBotStack(Stack):
             enforce_ssl=True,
         )
 
-        docker_path = str(Path(__file__).parent.parent.resolve())
-
         # Create log group for result handler
         result_handler_log_group = aws_logs.LogGroup(
             self,
@@ -120,16 +106,13 @@ class ChatBotStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        result_handler = DockerImageFunction(
+        result_handler = _lambda.Function(
             self,
             "ResultProcessingHandler",
             function_name="ResultProcessingHandler",
-            code=DockerImageCode.from_image_asset(
-                directory=docker_path,
-                file="Dockerfile",
-                exclude=["cdk.out"],
-                cmd=[f"{LAMBDA_ASSET_PATH}.results.response_handler"],
-            ),
+            runtime=_lambda.Runtime.PYTHON_3_14,
+            code=_lambda.Code.from_asset(chatbot_bundle_dir()),
+            handler=f"{LAMBDA_ASSET_PATH}.results.response_handler",
             timeout=Duration.minutes(1),
             role=lambda_role,  # type: ignore
             log_group=result_handler_log_group,
@@ -163,16 +146,13 @@ class ChatBotStack(Stack):
             removal_policy=RemovalPolicy.DESTROY,
         )
 
-        lambda_function = DockerImageFunction(
+        lambda_function = _lambda.Function(
             self,
             "BotHandler",
             function_name="BotHandler",
-            code=DockerImageCode.from_image_asset(
-                directory=docker_path,
-                file="Dockerfile",
-                exclude=["cdk.out"],
-                cmd=[f"{LAMBDA_ASSET_PATH}.chatbot.telegram_api_handler"],
-            ),
+            runtime=_lambda.Runtime.PYTHON_3_14,
+            code=_lambda.Code.from_asset(chatbot_bundle_dir()),
+            handler=f"{LAMBDA_ASSET_PATH}.chatbot.telegram_api_handler",
             timeout=Duration.minutes(1),
             role=lambda_role,  # type: ignore
             log_group=bot_handler_log_group,
@@ -219,16 +199,11 @@ class ChatBotStack(Stack):
             self,
             "WebhookTriggerHandler",
             function_name="WebhookTriggerHandler",
-            runtime=_lambda.Runtime.FROM_IMAGE,
-            handler=_lambda.Handler.FROM_IMAGE,
+            runtime=_lambda.Runtime.PYTHON_3_14,
+            handler=f"{LAMBDA_ASSET_PATH}.webhook.lambda_handler",
+            code=_lambda.Code.from_asset(chatbot_bundle_dir()),
             execute_after=[lambda_url_param],
             timeout=Duration.minutes(1),
-            code=Code.from_asset_image(
-                directory=docker_path,
-                file="Dockerfile",
-                exclude=["cdk.out"],
-                cmd=[f"{LAMBDA_ASSET_PATH}.webhook.lambda_handler"],
-            ),
             role=lambda_role,  # type: ignore
             log_group=webhook_trigger_log_group,
             execute_on_handler_change=True,
