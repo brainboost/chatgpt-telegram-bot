@@ -213,6 +213,17 @@ Each (account, region) pair must be bootstrapped once before the first CDK deplo
 cdk bootstrap aws://<ACCOUNT_ID>/<REGION>
 ```
 
+> ⚠️ **The bootstrap ("CDKToolkit") stack version is tied to the CDK CLI it was created
+> with, not to the code.** After upgrading `aws-cdk-lib` — this repo now pins 2.268.x, which
+> requires bootstrap **v30+** — re-run the same `cdk bootstrap` command **before** the next
+> deploy. Otherwise `cdk deploy` aborts with *"Bootstrap toolkit stack version 30 or later is
+> needed; current version: 27"* and, because the deploy role's permissions come from the
+> toolkit stack, it may also lack `cloudformation:DescribeEvents` (only granted by the newer
+> bootstrap template) → `AccessDenied` while reporting change-set validation failures.
+> Bootstrapping is idempotent: re-running it with a current CLI updates the toolkit stack and
+> its IAM roles in place. It needs CloudFormation + IAM rights on the `CDKToolkit` stack, so
+> run it with the account owner/administrator.
+
 ### Manual deployment (CLI)
 
 ```bash
@@ -259,7 +270,8 @@ OpenID Connect and never store long-lived AWS keys:
 | `deploy-prod.yml` | push to `main`, or `workflow_dispatch` | `prod` | `prod` |
 
 Pipeline steps (both files): checkout → assume AWS role (OIDC) → setup Node 22 + Python 3.14 →
-`uv sync --all-groups` → `cdk deploy --all --require-approval never`.
+`uv sync --all-groups` → `cdk bootstrap` (idempotent — upgrades a missing **or stale**
+CDKToolkit stack) → `cdk deploy --all --require-approval never`.
 
 Required repository/environment secrets:
 
@@ -273,8 +285,13 @@ with its own `AWS_ROLE`/`AWS_REGION`, pointing at its dedicated AWS account. Cre
 parameters listed in [`UPDATE_VARS.md`](UPDATE_VARS.md) in each account **before** the first
 workflow run (the workflows do not provision secrets).
 
-> If your workflow run fails on a first deploy in a fresh account, run
-> `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually (or add a bootstrap step).
+> The workflows bootstrap before deploying, so a missing **or outdated** toolkit stack is
+> upgraded automatically on the next run — **provided the `AWS_ROLE` may update the
+> `CDKToolkit` stack** (bootstrap needs CloudFormation + IAM rights). If your role is
+> deploy-only, run `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually with an
+> administrator, and re-run it after every `aws-cdk-lib` upgrade that raises the required
+> bootstrap version (the deploy fails with a *"Bootstrap toolkit stack version … is needed"*
+> error until you do).
 
 ### Undeploying
 
@@ -302,6 +319,39 @@ manually if you really want them gone).
    update SSM **and** redeploy so warm instances pick it up.
 6. **Lambda crashes at cold start with SSM errors**: a parameter from `UPDATE_VARS.md` is
    missing, or was created as `SecureString` (must be `String`).
+7. **Deploy aborts: `AWS::Logs::LogGroup` … "already exists" (early validation)** — the stacks
+   declare explicit log groups (`/aws/lambda/<Handler>`, 2-week retention), but those groups
+   already exist as **Lambda-created resources that CloudFormation does not own** (left over
+   from a stack version that did not declare them). CFN cannot adopt them through a normal
+   update, so this is a **one-time per-account** fix: delete the stale groups — only the ones
+   the deploy error lists — and redeploy (their old logs are lost; CloudWatch recreates the
+   groups on the next function run, and after this deploy CFN owns them for good):
+   ```bash
+   aws logs delete-log-group --log-group-name /aws/lambda/DeepLHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/GeminiHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/IdeogramHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/IdeogramResultHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/LLamaHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/BotHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/ResultProcessingHandler
+   aws logs delete-log-group --log-group-name /aws/lambda/WebhookTriggerHandler
+   cdk deploy --all --require-approval never
+   ```
+   Run against the same account+region as the deploy, and repeat for each stage account before
+   its first deploy of this code. Handlers that never ran before (e.g. `QwenHandler`) are not
+   affected — their groups do not exist yet.
+8. **Deploy fails: `AWS::Lambda::Function` … "does not have permission to access the provided
+   code artifact"** — while updating a container-image function, Lambda cannot pull the new
+   image from ECR at deploy time. Known causes: the ECR asset-repository resource policy for
+   the Lambda service is missing/stale (e.g. after a `cdk bootstrap` run, see
+   [aws/aws-cdk#18473](https://github.com/aws/aws-cdk/issues/18473)), or an ordering race in a
+   large change set. **First just retry the deploy** — the race usually does not reproduce.
+   If it persists: both stacks now grant their Lambda execution roles
+   `ecr:GetAuthorizationToken/BatchCheckLayerAvailability/BatchGetImage/GetDownloadUrlForLayer`
+   (role-based image retrieval, robust regardless of repository policy); alternatively repair
+   the repository policy of the specific repo the function points at (find it with
+   `aws lambda get-function --function-name IdeogramHandler --query 'Code.ImageUri'`, then
+   `aws ecr set-repository-policy`).
 
 ---
 

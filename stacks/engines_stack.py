@@ -55,6 +55,22 @@ class EnginesStack(Stack):
             )
         )
 
+        # Container-image functions: Lambda must be able to pull the image from ECR when the
+        # function is created/updated (deployment-time image retrieval). Granting the
+        # execution role ECR read access makes this robust even if the ECR asset-repository
+        # resource policy for the Lambda service is missing or stale.
+        self.lambda_role.add_to_policy(
+            aws_iam.PolicyStatement(
+                actions=[
+                    "ecr:GetAuthorizationToken",
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:BatchGetImage",
+                    "ecr:GetDownloadUrlForLayer",
+                ],
+                resources=["*"],
+            )
+        )
+
         # SNS request topic (one for all engines)
 
         self.request_topic = aws_sns.Topic(
