@@ -43,7 +43,7 @@ def response_handler(event, context) -> None:
 
 def __send_text(chat_id: str, message_id: int, text: str) -> None:
     try:
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -57,7 +57,7 @@ def __send_text(chat_id: str, message_id: int, text: str) -> None:
         logging.error(br)
         logging.info(text)
         # send without reply
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             bot.send_message(
                 chat_id=chat_id,
                 text=text,
@@ -68,7 +68,7 @@ def __send_text(chat_id: str, message_id: int, text: str) -> None:
     except Exception as e:
         logging.error(f"Cannot send message, error: {e}, \nPayload: {text}")
         # send plaintext
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             bot.send_message(
                 chat_id=chat_id,
                 text=text.replace("__", " "),
@@ -85,7 +85,7 @@ def __send_images(chat_id: str, message_id: int, message: str) -> None:
             logging.error(f"chat_id:{chat_id}, message_id: {message_id}")
             __send_text(chat_id, message_id, f"Error: {url}")
         try:
-            asyncio.get_event_loop().run_until_complete(
+            asyncio.run(
                 bot.send_photo(
                     chat_id=chat_id,
                     photo=url,

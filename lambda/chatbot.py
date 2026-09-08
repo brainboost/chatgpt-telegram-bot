@@ -605,7 +605,9 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
 
 
 def telegram_api_handler(event, context):
-    return asyncio.get_event_loop().run_until_complete(_main(event))
+    # asyncio.run() creates a fresh loop per invocation; get_event_loop() raises on
+    # Python >= 3.12 when no loop is current (as in a Lambda handler thread).
+    return asyncio.run(_main(event))
 
 
 async def _main(event):
