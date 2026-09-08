@@ -1,0 +1,12 @@
+{
+  "name": "chatgpt-telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Pins the CDK CLI (Node-distributed driver) for this Python CDK project. The CDK library itself (aws-cdk-lib) is a Python package managed by uv in pyproject.toml. Keep the aws-cdk version here in lockstep with aws-cdk-lib upgrades.",
+  "devDependencies": {
+    "aws-cdk": "2.1140.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

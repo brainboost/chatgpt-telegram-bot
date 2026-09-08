@@ -38,8 +38,8 @@ jobs:
           pip install uv
           uv venv
           echo "VIRTUAL_ENV=${Python_ROOT_DIR}" >> "$GITHUB_ENV"
-      - name: Install CDK
-        run: npm install -g aws-cdk 
+      - name: Install CDK CLI (pinned project-local)
+        run: npm ci
       - name: Install dependencies
         run: |
           source .venv/bin/activate
@@ -47,4 +47,4 @@ jobs:
       - name: Deploy stack
         run: |
           source .venv/bin/activate
-          cdk deploy --all --require-approval never
+          npx aws-cdk deploy --all --require-approval never

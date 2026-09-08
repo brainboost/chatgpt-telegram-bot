@@ -148,14 +148,24 @@ and `uv.lock`; the root project aggregates them as dependency groups for local d
 
 ## Local development
 
-Requirements: Python 3.14+ and [uv](https://docs.astral.sh/uv/), Node.js 20+ / `aws-cdk`
-CLI, Docker (BuildKit), AWS credentials.
+The IaC is **Python CDK**: the library (`aws-cdk-lib`, pinned in `pyproject.toml`) is a Python
+package installed by [uv](https://docs.astral.sh/uv/); the `cdk` **CLI** is a Node-distributed
+program pinned as a project-local devDependency in `package.json` (run via `npx aws-cdk`). Node
+is only the CLI's runtime — no application code depends on it.
+
+Requirements: Python 3.14+ with uv, Node.js 20+ (for the pinned CLI), Docker (BuildKit), AWS
+credentials.
 
 ```bash
 uv sync --all-groups            # install dev/CDK + lambda + engines deps into .venv
+npm ci                          # install the pinned aws-cdk CLI into ./node_modules
 
 uv run pytest                   # unit tests (AWS/live tests are @pytest.mark.skip)
 ```
+
+> Invoke CDK as `npx aws-cdk …`. Do not `npm install -g aws-cdk`, and do not rely on a bare
+> `python` from outside the activated venv — `npx aws-cdk` runs `python app.py`, so Python
+> must resolve to the project venv.
 
 Keep lockfiles in sync after editing `pyproject.toml`:
 
@@ -210,14 +220,14 @@ Before the first deployment to an account/region, complete the checklist in
 Each (account, region) pair must be bootstrapped once before the first CDK deploy:
 
 ```bash
-cdk bootstrap aws://<ACCOUNT_ID>/<REGION>
+npx aws-cdk bootstrap aws://<ACCOUNT_ID>/<REGION>
 ```
 
 > ⚠️ **The bootstrap ("CDKToolkit") stack version is tied to the CDK CLI it was created
 > with, not to the code.** After upgrading `aws-cdk-lib` — this repo now pins 2.268.x, which
-> requires bootstrap **v30+** — re-run the same `cdk bootstrap` command **before** the next
-> deploy. Otherwise `cdk deploy` aborts with *"Bootstrap toolkit stack version 30 or later is
-> needed; current version: 27"* and, because the deploy role's permissions come from the
+> requires bootstrap **v30+** — re-run the same bootstrap command **before** the next
+> deploy. Otherwise `npx aws-cdk deploy` aborts with *"Bootstrap toolkit stack version 30 or
+> later is needed; current version: 27"* and, because the deploy role's permissions come from the
 > toolkit stack, it may also lack `cloudformation:DescribeEvents` (only granted by the newer
 > bootstrap template) → `AccessDenied` while reporting change-set validation failures.
 > Bootstrapping is idempotent: re-running it with a current CLI updates the toolkit stack and
@@ -232,28 +242,28 @@ export CDK_ACCOUNT=<ACCOUNT_ID>
 export CDK_REGION=<REGION>
 export STAGE=dev                 # or prod
 
-# 2. (If not yet installed) the CDK CLI
-npm install -g aws-cdk
-
-# 3. Install Python deps and sanity-check
+# 2. Install the pinned CDK CLI (project-local) and Python deps
+npm ci
 uv sync --all-groups
-cdk ls                           # EnginesStack  DatabaseStack  ChatBotStack
+
+# 3. Sanity-check (list stacks)
+npx aws-cdk ls                   # EnginesStack  DatabaseStack  ChatBotStack
 
 # 4. Review what will change
-cdk diff
+npx aws-cdk diff
 
 # 5. Deploy everything (order/dependencies are resolved automatically)
-cdk deploy --all --require-approval never
+npx aws-cdk deploy --all --require-approval never
 
 # 6. Deploy a single stack if needed (respects dependencies)
-cdk deploy ChatBotStack
+npx aws-cdk deploy ChatBotStack
 
 # 7. Verify the stage (see "Post-deploy checks" below)
 ```
 
 Notes:
 
-- `cdk deploy --all` runs EnginesStack, DatabaseStack, ChatBotStack in dependency order;
+- `npx aws-cdk deploy --all` runs EnginesStack, DatabaseStack, ChatBotStack in dependency order;
   ChatBotStack's webhook trigger registers the Telegram webhook at the end of the deploy.
 - Deploying requires Docker (container image assets are built during synthesis/deploy).
 - If you change only Lambda code, redeploy ChatBotStack and/or EnginesStack (the affected
@@ -270,7 +280,8 @@ OpenID Connect and never store long-lived AWS keys:
 | `deploy-prod.yml` | push to `main`, or `workflow_dispatch` | `prod` | `prod` |
 
 Pipeline steps (both files): checkout → assume AWS role (OIDC) → setup Node 22 + Python 3.14 →
-`uv sync --all-groups` → `cdk deploy --all --require-approval never`. Bootstrapping is **not**
+`npm ci` (pinned CDK CLI) → `uv sync --all-groups` → `npx aws-cdk deploy --all
+--require-approval never`. Bootstrapping is **not**
 part of the pipeline: a least-privilege `AWS_ROLE` cannot manage the `CDKToolkit` stack (a
 bootstrap step fails with `AccessDenied` on `cloudformation:DescribeStacks`), so bootstrap each
 (account, region) manually with an administrator — see "One-time bootstrap" — before the first
@@ -291,19 +302,19 @@ workflow run (the workflows do not provision secrets).
 > The workflows do **not** bootstrap: a deploy-only `AWS_ROLE` (typical least-privilege CDK
 > setup) cannot manage the `CDKToolkit` stack — a bootstrap step run as that role fails with
 > `AccessDenied` on `cloudformation:DescribeStacks`. Instead, run
-> `cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually with an administrator, and re-run it
+> `npx aws-cdk bootstrap aws://<ACCOUNT>/<REGION>` once manually with an administrator, and re-run it
 > after every `aws-cdk-lib` upgrade that raises the required bootstrap version (the deploy
 > fails with a *"Bootstrap toolkit stack version … is needed"* error until you do).
 
 ### Undeploying
 
 ```bash
-cdk diff                 # inspect
-cdk destroy --all        # tears down stacks (see note below)
+npx aws-cdk diff                 # inspect
+npx aws-cdk destroy --all        # tears down stacks (see note below)
 ```
 
 `RemovalPolicy` note: the S3 bucket, queues and log groups are destroyed with the stack,
-but the **DynamoDB tables are `RETAIN`ed** and remain after `cdk destroy` (delete them
+but the **DynamoDB tables are `RETAIN`ed** and remain after `npx aws-cdk destroy` (delete them
 manually if you really want them gone).
 
 ---
@@ -337,7 +348,7 @@ manually if you really want them gone).
    aws logs delete-log-group --log-group-name /aws/lambda/BotHandler
    aws logs delete-log-group --log-group-name /aws/lambda/ResultProcessingHandler
    aws logs delete-log-group --log-group-name /aws/lambda/WebhookTriggerHandler
-   cdk deploy --all --require-approval never
+   npx aws-cdk deploy --all --require-approval never
    ```
    Run against the same account+region as the deploy, and repeat for each stage account before
    its first deploy of this code. Handlers that never ran before (e.g. `QwenHandler`) are not
@@ -345,7 +356,7 @@ manually if you really want them gone).
 8. **Deploy fails: `AWS::Lambda::Function` … "does not have permission to access the provided
    code artifact"** — while updating a container-image function, Lambda cannot pull the new
    image from ECR at deploy time. Known causes: the ECR asset-repository resource policy for
-   the Lambda service is missing/stale (e.g. after a `cdk bootstrap` run, see
+   the Lambda service is missing/stale (e.g. after a `npx aws-cdk bootstrap` run, see
    [aws/aws-cdk#18473](https://github.com/aws/aws-cdk/issues/18473)), or an ordering race in a
    large change set. **First just retry the deploy** — the race usually does not reproduce.
    If it persists: both stacks now grant their Lambda execution roles

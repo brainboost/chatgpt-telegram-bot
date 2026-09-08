@@ -116,7 +116,7 @@ pre-seed a session. Key used by the engine: `session_cookie`.
 
 ```bash
 export CDK_ACCOUNT=123456789012 CDK_REGION=eu-central-1 STAGE=prod
-cdk deploy --all
+npx aws-cdk deploy --all
 ```
 
 GitHub Actions already pins `PYTHON_VERSION: 3.14` and `NODE_VERSION: 22` in
