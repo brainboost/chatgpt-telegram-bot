@@ -213,7 +213,10 @@ Before the first deployment to an account/region, complete the checklist in
    created by ChatBotStack, so upload the file right after the first deploy and before the
    first `/imagine`.
 3. Confirm the SNS **alarm e-mail** subscription (one click in the inbox).
-4. Have Docker running (image assets are built during synth/deploy).
+4. Have Docker running (image assets are built during synth/deploy). Docker is only needed on
+   the machine that runs `cdk deploy` / `cdk synth` — the CI runners provide it. A machine
+   without Docker (e.g. a Windows laptop) can still run `cdk bootstrap`, push code, and let CI
+   perform the actual deploys.
 
 ### One-time bootstrap
 
