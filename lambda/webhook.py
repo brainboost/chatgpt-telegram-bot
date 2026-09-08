@@ -37,4 +37,6 @@ async def set_webhook():
 
 
 def lambda_handler(event, context):
-    return asyncio.get_event_loop().run_until_complete(set_webhook())
+    # asyncio.run() creates a fresh loop per invocation; get_event_loop() raises on
+    # Python >= 3.12 when no loop is current (as in a Lambda handler thread).
+    return asyncio.run(set_webhook())
