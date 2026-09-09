@@ -1,88 +1,55 @@
 import json
 import logging
 import re
-import uuid
-from typing import Any
 
-import boto3
 from google import genai
 from google.genai import types
 
-from .common_utils import encode_message, read_ssm_param
+from .common_utils import read_ssm_param
+from .session import EngineResponder, run_engine_event
 from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+logger = logging.getLogger(__name__)
 
-engine_type = "gemini"
 # Current stable Gemini model (GA, Sept 2026). For the pro-tier preview
 # instead, use "gemini-3.1-pro-preview".
 model = "gemini-3.8-flash"
 
-bucket_name = read_ssm_param(param_name="BOT_S3_BUCKET")
-result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
-sns = boto3.session.Session().client("sns")
 _client = None
 _generation_config = None
 
 
-def process_command(input: str, context: UserContext) -> None:
-    command = input.removeprefix(prefix="/").lower()
-    logging.info(f"Processing command {command} for {context.user_id}")
-    if "reset" in command:
-        context.reset_conversation()
-        logging.info(f"Conversation hass been reset for {context.user_id}")
-        return
-    logging.error(f"Unknown command {command}")
+class GeminiResponder(EngineResponder):
+    label = "gemini"
+    wants_session = True
+    reply_on_error = False  # provider failures raise to the DLQ
 
-
-def ask(
-    text: str,
-    file_path: str,
-    context: UserContext,
-) -> str:
-    if "/ping" in text:
-        return "pong"
-
-    if context.conversation_id is None:
-        context.conversation_id = str(uuid.uuid4())
-    logging.info(f"conversation_id; '{context.conversation_id}'")
-    contents = [
-        types.Content(
-            role="user",
-            parts=[
-                types.Part.from_text(text=text),
+    def answer(self, payload: dict, context: UserContext | None) -> str:
+        text = payload.get("text", "")
+        if _client is None:
+            create()
+        response = _client.models.generate_content_stream(
+            model=model,
+            contents=[
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=text)],
+                ),
             ],
-        ),
-    ]
-
-    # if file_path:
-    #     logging.info(f"Downloading image '{file_path}'")
-    #     image = get_s3_file(file_path, bucket_name)
-    #     imagePart = types.Part.from_bytes(Path(image).read_bytes())
-    #     contents[0].parts.append(
-    #         types.Part(
-    #             inline_data={
-    #                 "mime_type": "image/jpeg",
-    #                 "data": Path(image).read_bytes(),
-    #             }
-    #         ),
-    #     )
-    response = _client.models.generate_content_stream(
-        model=model,
-        contents=contents,
-        config=_generation_config,
-    )
-    answer = ""
-    for chunk in response:
-        if not chunk.parts or chunk.parts[0].text is None:
-            continue
-        answer += chunk.parts[0].text
-    return __as_markdown(answer)
+            config=_generation_config,
+        )
+        answer = ""
+        for chunk in response:
+            if not chunk.parts or chunk.parts[0].text is None:
+                continue
+            answer += chunk.parts[0].text
+        return __as_markdown(answer)
 
 
 def create() -> None:
-    logging.info("Create chatbot instance")
+    logger.info("Create chatbot instance")
     safety_settings = [
         {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
         {
@@ -119,39 +86,13 @@ def __as_markdown(input: str) -> str:
     return re.sub(esc_pattern, r"\\\1", input)
 
 
-def __process_payload(payload: Any, request_id: str) -> None:
-    user_id = payload["user_id"]
-    user_context = UserContext(
-        user_id=f"{user_id}_{payload['chat_id']}",
-        request_id=request_id,
-        engine_id=engine_type,
-        username=payload["username"],
-    )
-    if "command" in payload["type"]:
-        process_command(input=payload["text"], context=user_context)
-        return
-
-    if not (_client):
-        create()
-
-    response = ask(
-        text=payload["text"],
-        file_path=payload.get("file", None),
-        context=user_context,
-    )
-    user_context.save_conversation(
-        conversation={"request": payload["text"], "response": response},
-    )
-    payload["response"] = encode_message(response)
-    payload["engine"] = engine_type
-    # logging.info(payload)
-    sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
+_RESPONDER = GeminiResponder()
 
 
 def sns_handler(event, context):
-    """AWS SNS event handler"""
+    """AWS SNS event handler for the Gemini engine Lambda."""
     request_id = context.aws_request_id
-    logging.info(f"Request ID: {request_id}")
+    logger.info("Request ID: %s", request_id)
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
-        __process_payload(payload, request_id)
+        run_engine_event(payload, request_id, _RESPONDER)
