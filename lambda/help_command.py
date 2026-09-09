@@ -50,31 +50,26 @@ SL    Slovenian
 ES    Spanish
 SV    Swedish
 TR    Turkish
-UA    Ukrainian"""  # noqa: E501
+UA    Ukrainian"""
     elif text.endswith("imagine"):
         message = r"""\/imagine \- Creating images using *Ideogram\.ai* engine\. Usage: \/imagine PROMPT
-Example: \/imagine Cute kitty plays with yarn ball"""  # noqa: E501
+Example: \/imagine Cute kitty plays with yarn ball"""
     elif text.endswith("ideogram"):
         message = r"""\/ideogram \- Creating images and typographics using *Ideogram\.ai* engine\. Usage: \/ideogram PROMPT
-Example: \/ideogram Cute kitty plays with yarn ball"""  # noqa: E501
-    elif (
-        text.endswith("creative")
-        or text.endswith("balanced")
-        or text.endswith("precise")
-    ):
-        message = r"""Sets the tone of responses for engines that support it\. Each mode will start a new conversation\.
+Example: \/ideogram Cute kitty plays with yarn ball"""
+    elif text.endswith(("creative", "balanced", "precise")):
+        message = r"""Sets the tone of responses for providers that support it\. Each mode will start a new conversation\.
 Available values are:
     \• *creative* \(default\)\. More imaginative responses, suitable for creative writing and brainstorming\.
     \• *balanced*\. Balanced mix of information and creativity\.
-    \• *precise*\. Concise and factual responses\."""  # noqa: E501
-    elif text.endswith("engines"):
-        message = r"""\/engines \- You can activate multiple AI engines to set them answering in parallel\. Put their names separated with comma as an argument\.
-Example: \/engines gemini,qwen,llama \- all listed engines will respond simultaneously\.
-This command persists its value in the user configuration, so it will work until any of following commands applied:
-    \• \/llama
-    \• \/qwen
-    \• \/gemini
-    \• \/engines"""  # noqa: E501
+    \• *precise*\. Concise and factual responses\."""
+    elif text.endswith(("llama", "qwen", "gemini")):
+        message = r"""Sets which provider starts answering your chat messages\.
+If that provider is unavailable, the bot falls back automatically\.
+    \• \/gemini \- falls back to Qwen, then Llama \(default\)
+    \• \/qwen \- falls back to Llama
+    \• \/llama \- no further fallback
+The choice is remembered for your next conversations\."""
     else:
         message = r"""If you need help with bot command, please type the command  
     with \/help prefix, for example *\/help tr*"""
@@ -91,12 +86,11 @@ Supported commands are:
 \/tr \- Translate text to other language\(s\) using DeepL API
 \/imagine \- Generate images using Ideogram\.ai engine
 \/ideogram \- Generate images using Ideogram\.ai engine
-\/llama \- Switch answers to Meta Llama 4 AI model \(Ollama Cloud\)
-\/qwen \- Switch answers to Alibaba Qwen 3\.5 AI model \(Ollama Cloud\)
-\/gemini \- Switch answers to Google Gemini AI model
-\/engines \- Activates multiple AI engines at once, comma separated list
+\/gemini \- Answer with Google Gemini \(default\)
+\/qwen \- Answer with Alibaba Qwen 3\.5 \(Ollama Cloud\)
+\/llama \- Answer with Meta Llama 4 \(Ollama Cloud\)
 \/creative \- Set tone of responses to more creative \(Default\)
 \/balanced \- Set tone of responses to more balanced
-\/precise \- Set tone of responses to more precise"""  # noqa: E501
+\/precise \- Set tone of responses to more precise"""
 
     await update.message.reply_text(message, parse_mode=constants.ParseMode.MARKDOWN_V2)

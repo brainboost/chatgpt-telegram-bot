@@ -31,7 +31,8 @@ class OllamaError(Exception):
 class OllamaResponder(EngineResponder):
     label = engine_type
     wants_session = True
-    reply_on_error = True  # provider failures are replied as error text
+    reply_on_error = True  # kept for the responder contract; failover intercepts errors
+    fails_over = True  # provider failures advance the chat failover chain
 
     def __init__(self) -> None:
         self._api_key: str | None = None

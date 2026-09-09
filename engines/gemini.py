@@ -23,7 +23,8 @@ _generation_config = None
 class GeminiResponder(EngineResponder):
     label = "gemini"
     wants_session = True
-    reply_on_error = False  # provider failures raise to the DLQ
+    reply_on_error = False  # kept for the responder contract; failover intercepts errors
+    fails_over = True  # provider failures advance the chat failover chain
 
     def answer(self, payload: dict, context: UserContext | None) -> str:
         text = payload.get("text", "")

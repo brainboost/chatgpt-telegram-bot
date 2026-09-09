@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 import boto3
 import boto3.session
@@ -22,6 +22,8 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+
+import providers
 
 from .formatting import assemble_plain_reply, format_text
 from .help_command import help_handler, start_handler
@@ -48,6 +50,7 @@ LANG, TEXT = range(2)
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+logger = logging.getLogger(__name__)
 
 user_config = UserConfig()
 sns = boto3.session.Session().client("sns")
@@ -80,6 +83,19 @@ def _request_fields(update: Update) -> dict:
     }
 
 
+def _chat_provider(config: dict) -> list[str]:
+    """Routing list for one chat request: the conversation-start provider.
+
+    The user-config ``engines`` field (legacy name) holds the chain start —
+    which provider begins answering, kept across sessions so follow-ups stay
+    on the same model. Provider failures advance the chain worker-side.
+    """
+    engines = config.get("engines") or []
+    if engines:
+        return [engines[0]]
+    return [providers.DEFAULT_CHAT_PROVIDER]
+
+
 # Telegram commands
 
 
@@ -91,13 +107,12 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ):
         return
 
-    user_id = update.effective_user.id
-    config = user_config.read(user_id)
     request = CommandRequest(
         **_request_fields(update),
         text=update.effective_message.text,
     )
-    await __publish(request, engines=config["engines"])
+    # Memory lives per provider in the failover chain, so clear all of them.
+    await __publish(request, engines=list(providers.chat_provider_ids()))
     await update.effective_message.reply_text(text="Conversation has been reset")
 
 
@@ -121,7 +136,13 @@ async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @send_typing_action
-async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def select_provider(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/gemini | /qwen | /llama — pick the conversation-start provider.
+
+    The choice is persisted in the user config (``engines`` field) so follow-up
+    sessions keep answering with the same model; provider failures still fall
+    back along the catalog chain automatically.
+    """
     if (
         update.effective_user is None
         or update.effective_message is None
@@ -131,30 +152,24 @@ async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    username = update.effective_user.username
-    config["username"] = username
-    engine_types = (
-        update.effective_message.text.strip("/")
-        .split("@")[0]
-        .lower()
-        .replace("engines", "")
-        .replace(" ", "")
-        .strip()
-    )
-    logging.info(f"engines: {engine_types}")
-    if not engine_types:
-        engine_types = config["engines"]
-        await update.effective_message.reply_text(text=f"Bot engines: {engine_types}")
+    provider = update.effective_message.text.strip("/").split("@")[0].lower()
+    if not providers.is_chat_provider(provider):
+        valid = ", ".join(providers.chat_provider_ids())
+        await update.effective_message.reply_text(
+            text=f"Unknown provider '{provider}'. Available: {valid}"
+        )
         return
 
-    if "," in engine_types:
-        config["engines"] = engine_types.split(",")
-    else:
-        config["engines"] = [engine_types]
-    logging.info(f"User {username} {user_id} set engines to '{engine_types}'")
+    config["engines"] = [provider]
     user_config.write(user_id, config)
+    logger.info(
+        "User %s set conversation-start provider to '%s'", user_id, provider
+    )
     await update.effective_message.reply_text(
-        text=f"Bot engines has been set to {engine_types}"
+        text=(
+            f"Conversations will start with {providers.provider_label(provider)}. "
+            "If it is unavailable, the bot falls back automatically."
+        )
     )
 
 
@@ -205,7 +220,7 @@ async def grab_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as e:
         logging.error(e)
         await update.effective_message.reply_text(
-            text=f"Error: ```{str(e)}```",
+            text=f"Error: ```{e!s}```",
             parse_mode=constants.ParseMode.MARKDOWN_V2,
         )
 
@@ -310,7 +325,7 @@ def __start_redrive_dlq() -> Any:
             except ClientError as e:
                 logging.error(f"Redriving DLQ messages error :{e}")
                 return f"DLQ Redrive failed for {queue_url}"
-    return format_text("Finished DLQ redrive. {} messages moved".format(count))
+    return format_text(f"Finished DLQ redrive. {count} messages moved")
 
 
 # Translation handlers
@@ -413,7 +428,7 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
             text=transcript_msg,
             config=config,
         )
-        await __publish(request, engines=config["engines"])
+        await __publish(request, engines=_chat_provider(config))
     except Exception as e:
         logging.error(
             msg="Exception occured during voice message processing",
@@ -436,7 +451,7 @@ async def process_upload(
         text=update.message.caption or "",
         config=config,
     )
-    await __publish(request, engines=config["engines"])
+    await __publish(request, engines=_chat_provider(config))
 
 
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -517,7 +532,7 @@ async def __process_text(
         text=chat_text,
         config=config,
     )
-    await __publish(request, engines=config["engines"])
+    await __publish(request, engines=_chat_provider(config))
 
 
 @send_typing_action
@@ -554,7 +569,7 @@ async def __process_images(
     await __publish(request)
 
 
-async def __publish(request: RequestMessage, engines: Optional[list] = None) -> None:
+async def __publish(request: RequestMessage, engines: list | None = None) -> None:
     """Publish a typed request to the engines topic; transport only."""
     body, attrs = to_sns_message(request, engines)
     logging.info(
@@ -591,12 +606,11 @@ async def _main(event):
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["llama", "qwen", "gemini"],
-            engines,
+            list(providers.chat_provider_ids()),
+            select_provider,
             filters=filters.COMMAND,
         )
     )
-    app.add_handler(CommandHandler("engines", engines, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND

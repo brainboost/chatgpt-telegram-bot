@@ -14,10 +14,13 @@ Interface summary (everything a caller must know):
   Telegram-side renderer keys off it), and ``answer()`` — provider I/O
   that returns one result (``str``, labelled with ``label``) or several
   (``list[(label, text)]``, e.g. DeepL one per target language).
+  Chat responders also set ``fails_over``: when their ``answer()`` raises, the
+  runtime re-publishes the request to the next provider in the catalog chain
+  instead of erroring; at the chain tail the user gets an error reply.
 - ``run_engine_event(payload, request_id, responder)`` owns: command dispatch
   (``type == "command"`` → reset, no publish), the ``/ping`` shortcut (pong,
-  not saved to history), session build, the error policy, conversation save
-  and result publishing.
+  not saved to history), session build, the failover/error policy,
+  conversation save and result publishing.
 - ``build_context`` / ``publish_result`` are the shared helpers for flows that
   don't go through ``run_engine_event`` (the async Ideogram poll handler).
 
@@ -34,6 +37,8 @@ from typing import Protocol
 
 import boto3
 
+import providers
+
 from .common_utils import encode_message, read_ssm_param
 from .user_context import UserContext
 
@@ -43,13 +48,17 @@ logger = logging.getLogger(__name__)
 
 _result_topic: str | None = None
 _sns = None
+_request_topic: str | None = None
+_sns_request = None
 
 
 class EngineResponder(Protocol):
     """The narrow seam each engine module satisfies.
 
     ``label``, ``wants_session`` and ``reply_on_error`` are class attributes;
-    ``format`` is an optional class attribute defaulting to ``"markdown"``.
+    ``format`` is an optional class attribute defaulting to ``"markdown"`` and
+    ``fails_over`` is an optional class attribute (default ``False``) that
+    opts a chat responder into the failover chain.
     """
 
     label: str
@@ -72,8 +81,17 @@ def run_engine_event(
     *,
     publish: Callable[[dict], None] | None = None,
     context_factory: Callable[..., UserContext | None] | None = None,
+    republish: Callable[[dict, str], None] | None = None,
+    chain: Callable[[str], str | None] | None = None,
 ) -> None:
-    """Process one engine request payload end-to-end."""
+    """Process one engine request payload end-to-end.
+
+    ``republish`` is the failover seam: ``(payload, next_provider_id)`` re-routes
+    a failed chat request to the next provider in the chain (the default
+    publishes to the request topic with the SNS ``engines`` attribute).
+    ``chain`` resolves the next provider from a label and defaults to the
+    provider catalog.
+    """
     text = payload.get("text", "")
     kind = payload.get("type", "")
     flavor = _responder_format(responder)
@@ -98,6 +116,16 @@ def run_engine_event(
     try:
         result = responder.answer(payload, context)
     except Exception as e:
+        handled = _handle_answer_error(
+            payload,
+            responder,
+            e,
+            publish=publish,
+            republish=republish,
+            chain=chain,
+        )
+        if handled:
+            return
         if not responder.reply_on_error:
             raise
         logger.error(
@@ -202,6 +230,73 @@ def _save_and_publish(
 def _responder_format(responder: EngineResponder) -> str:
     """The declared content flavor; responders default to ``markdown``."""
     return getattr(responder, "format", "markdown")
+
+
+def _handle_answer_error(
+    payload: dict,
+    responder: EngineResponder,
+    error: Exception,
+    *,
+    publish: Callable[[dict], None] | None,
+    republish: Callable[[dict, str], None] | None,
+    chain: Callable[[str], str | None] | None,
+) -> bool:
+    """Apply the failover policy after ``answer()`` raised.
+
+    Returns True when the failure was fully handled — the request was
+    re-published to the next provider in the chain, or the chain is exhausted
+    and the tail provider replied a user-facing error. Returns False when the
+    caller's ``reply_on_error`` / DLQ policy applies (non-chat responders).
+    """
+    if not getattr(responder, "fails_over", False):
+        return False
+    next_provider = (chain or providers.chain_next)(responder.label)
+    if next_provider:
+        logger.warning(
+            "Provider '%s' failed for user %s; failing over to '%s'",
+            responder.label,
+            payload.get("user_id"),
+            next_provider,
+            exc_info=error,
+        )
+        (republish or _default_republish)(payload, next_provider)
+        return True
+    logger.error(
+        "Chat failover chain exhausted at '%s' for user %s",
+        responder.label,
+        payload.get("user_id"),
+        exc_info=error,
+    )
+    message = (
+        "All chat providers failed to answer. "
+        f"Last error from {providers.provider_label(responder.label)}: {error}"
+    )
+    publish_result(payload, responder.label, message, publish=publish, format="plain")
+    return True
+
+
+def _default_republish(payload: dict, next_provider_id: str) -> None:
+    """Publish the same request to the next provider's SNS filter."""
+    global _request_topic, _sns_request
+    if _sns_request is None:
+        _request_topic = read_ssm_param(param_name="REQUESTS_SNS_TOPIC_ARN")
+        _sns_request = boto3.session.Session().client("sns")
+    attrs = {
+        "type": {
+            "DataType": "String",
+            "StringValue": str(payload.get("type", "text")),
+        },
+        "engines": {
+            "DataType": "String.Array",
+            "StringValue": json.dumps([next_provider_id]),
+        },
+    }
+    logger.info("Failing over to provider %s", next_provider_id)
+    _sns_request.publish(
+        TopicArn=_request_topic,
+        Message=json.dumps(payload),
+        MessageAttributes=attrs,
+    )
 
 
 def _default_publish(payload: dict) -> None:

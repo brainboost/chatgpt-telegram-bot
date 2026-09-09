@@ -33,12 +33,14 @@ class FakeContext:
 
 class StubResponder(EngineResponder):
     def __init__(self, answer_fn=None, label="stub", wants_session=False,
-                 reply_on_error=False, format=None):
+                 reply_on_error=False, format=None, fails_over=None):
         self.label = label
         self.wants_session = wants_session
         self.reply_on_error = reply_on_error
         if format is not None:
             self.format = format
+        if fails_over:
+            self.fails_over = True
         self._answer_fn = answer_fn
         self.calls = 0
 
@@ -158,6 +160,85 @@ def test_default_responder_format_is_markdown():
     _, published, _ = _run(_text_payload(), responder)
 
     assert published[0]["format"] == "markdown"
+
+
+def _failing_responder(label, **kwargs):
+    def boom(payload, ctx):
+        raise ValueError("provider down")
+
+    return StubResponder(
+        label=label, answer_fn=boom, wants_session=True, fails_over=True, **kwargs
+    )
+
+
+def _republish_recorder(republished):
+    def record(payload, next_provider_id):
+        republished.append((payload, next_provider_id))
+
+    return record
+
+
+def test_fails_over_republishes_to_the_next_provider():
+    responder = _failing_responder("gemini")
+    republished = []
+    context, published, _ = _run(
+        _text_payload(), responder, republish=_republish_recorder(republished)
+    )
+
+    assert republished == [(_text_payload(), "qwen")]  # chain gemini -> qwen
+    assert published == []
+    # nothing saved: the failed provider keeps no turn
+    assert context.persisted == 0
+    assert context.turns == []
+
+
+def test_fails_over_advances_from_the_middle_of_the_chain():
+    responder = _failing_responder("qwen")
+    republished = []
+    _, published, _ = _run(
+        _text_payload(), responder, republish=_republish_recorder(republished)
+    )
+
+    assert [next_id for _, next_id in republished] == ["llama"]
+    assert published == []
+
+
+def test_fails_over_at_chain_tail_replies_an_error():
+    responder = _failing_responder("llama")
+    republished = []
+    context, published, _ = _run(
+        _text_payload(), responder, republish=_republish_recorder(republished)
+    )
+
+    assert republished == []
+    assert len(published) == 1
+    result = published[0]
+    assert result["engine"] == "llama"
+    assert result["format"] == "plain"
+    assert _decode_response(result).startswith("All chat providers failed to answer")
+    # the outage is not recorded as a conversation turn
+    assert context.persisted == 0
+    assert context.turns == []
+
+
+def test_non_failover_responders_keep_the_reply_on_error_policy():
+    def boom(payload, ctx):
+        raise ValueError("boom")
+
+    responder = StubResponder(
+        wants_session=True,
+        reply_on_error=True,
+        answer_fn=boom,
+    )
+    republished = []
+    context, published, _ = _run(
+        _text_payload(), responder, republish=republished.append
+    )
+
+    assert republished == []
+    assert len(published) == 1
+    assert _decode_response(published[0]) == "boom"
+    assert context.persisted == 1
 
 
 def test_ping_publishes_pong_without_history():
