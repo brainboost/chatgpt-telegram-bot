@@ -3,7 +3,7 @@ import logging
 
 from deepl import Translator
 
-from .common_utils import escape_markdown_v2, read_ssm_param
+from .common_utils import read_ssm_param
 from .session import EngineResponder, run_engine_event
 from .user_context import UserContext
 
@@ -19,6 +19,7 @@ class DeepLResponder(EngineResponder):
     label = "deepl"
     wants_session = False  # translations persist nothing
     reply_on_error = True  # a failing language is replied as error text
+    format = "plain"  # translations are literal text, never Markdown
 
     def answer(
         self,
@@ -34,11 +35,11 @@ class DeepLResponder(EngineResponder):
                     payload["text"].replace("/tr", ""),
                     target_lang=lang.strip(),
                 )
-                result = escape_markdown_v2(response.text)
+                result = response.text
             except Exception as e:  # any per-language failure becomes an error reply
                 logger.error("Translation to %s failed", lang, exc_info=e)
-                result = escape_markdown_v2(str(e))
-            results.append((lang.strip().replace("-", "\\-"), result))
+                result = str(e)
+            results.append((lang.strip(), result))
         return results
 
 

@@ -23,6 +23,7 @@ from telegram.ext import (
     filters,
 )
 
+from .formatting import assemble_plain_reply, format_text
 from .help_command import help_handler, start_handler
 from .request_message import (
     CommandRequest,
@@ -34,14 +35,12 @@ from .request_message import (
 )
 from .user_config import UserConfig
 from .utils import (
-    escape_markdown_v2,
     generate_transcription,
     read_ssm_param,
     recursive_stringify,
     restricted,
     send_action,
     send_typing_action,
-    split_long_message,
     upload_to_s3,
 )
 
@@ -200,7 +199,7 @@ async def grab_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             results = ["No error messages found"]
         else:
             text = recursive_stringify(results)
-            parts = split_long_message(text, "logs", 4060)
+            parts = assemble_plain_reply(text, "logs")
             for part in parts:
                 await update.effective_message.reply_text(text=part)
     except Exception as e:
@@ -311,7 +310,7 @@ def __start_redrive_dlq() -> Any:
             except ClientError as e:
                 logging.error(f"Redriving DLQ messages error :{e}")
                 return f"DLQ Redrive failed for {queue_url}"
-    return escape_markdown_v2("Finished DLQ redrive. {} messages moved".format(count))
+    return format_text("Finished DLQ redrive. {} messages moved".format(count))
 
 
 # Translation handlers
@@ -402,7 +401,7 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
     transcript_msg = await generate_transcription(file)
     logging.info(transcript_msg)
     await update.effective_message.reply_text(
-        text=escape_markdown_v2(transcript_msg),
+        text=format_text(transcript_msg),
         disable_notification=True,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
     )

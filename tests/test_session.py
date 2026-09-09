@@ -33,10 +33,12 @@ class FakeContext:
 
 class StubResponder(EngineResponder):
     def __init__(self, answer_fn=None, label="stub", wants_session=False,
-                 reply_on_error=False):
+                 reply_on_error=False, format=None):
         self.label = label
         self.wants_session = wants_session
         self.reply_on_error = reply_on_error
+        if format is not None:
+            self.format = format
         self._answer_fn = answer_fn
         self.calls = 0
 
@@ -130,18 +132,32 @@ def test_multi_result_per_label_published():
     responder = StubResponder(
         wants_session=False,
         answer_fn=lambda payload, ctx: [
-            ("EN\\-GB", "hello"),
+            ("EN-GB", "hello"),
             ("PL", "witaj"),
         ],
     )
     context, published, factory = _run(_text_payload(), responder)
 
-    assert [p["engine"] for p in published] == ["EN\\-GB", "PL"]
+    assert [p["engine"] for p in published] == ["EN-GB", "PL"]
     assert [_decode_response(p) for p in published] == ["hello", "witaj"]
     # translate-style responders keep no session: nothing saved or persisted
     assert not hasattr(factory, "engine_label")
     assert context.turns == []
     assert context.persisted == 0
+
+
+def test_responder_format_is_stamped_on_the_wire():
+    responder = StubResponder(wants_session=True, format="plain")
+    _, published, _ = _run(_text_payload(), responder)
+
+    assert published[0]["format"] == "plain"
+
+
+def test_default_responder_format_is_markdown():
+    responder = StubResponder(wants_session=True)
+    _, published, _ = _run(_text_payload(), responder)
+
+    assert published[0]["format"] == "markdown"
 
 
 def test_ping_publishes_pong_without_history():

@@ -1,7 +1,15 @@
 # Markdown / Message-Formatting Upgrade Plan
 
 Status: **proposal only — no legacy code was rewritten.**
-Branch context: `bump-deps-remove-claude` (worktree `.worktrees/bump-deps-remove-claude`, commit `22b44f2`).
+
+> **Adoption note (architecture worktree, candidate 4, 2026-09-08):** the
+> "sender renders once" core of Phase 1–2 is now implemented on the
+> `architecture` branch: engines publish raw content (F2/F3 deleted) with an
+> optional `format` declaration, and one `lambda/formatting.py` owns flavor
+> selection, escaping (F1), the UTF-16 splitter (F4) and the send fallback
+> (R5). Markup-aware splitting, entity rendering and the native rich-message
+> switch remain future work gated on the plan below.
+> Branch context: `bump-deps-remove-claude` (worktree `.worktrees/bump-deps-remove-claude`, commit `22b44f2`).
 Date: 2026-09-04 · Owner: maintainer (review + approve before implementation starts)
 
 ## 1. Goal

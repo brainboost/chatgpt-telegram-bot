@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 
 from google import genai
 from google.genai import types
@@ -41,7 +40,8 @@ class GeminiResponder(EngineResponder):
             if not chunk.parts or chunk.parts[0].text is None:
                 continue
             answer += chunk.parts[0].text
-        return __as_markdown(answer)
+        # Raw provider content; the result path renders it for Telegram.
+        return answer
 
 
 def _build_contents(text: str, turns: list) -> list:
@@ -93,13 +93,6 @@ def create() -> None:
     global _client
     api_key = read_ssm_param(param_name="GEMINI_API_KEY")
     _client = genai.Client(api_key=api_key)
-
-
-def __as_markdown(input: str) -> str:
-    input = re.sub(r"(?<!\*)\*(?!\*)", "\\\\*", input)
-    input = re.sub(r"\*{2,}", "*", input)
-    esc_pattern = re.compile(f"([{re.escape(r'._-+#|{}!=()<>[]')}])")
-    return re.sub(esc_pattern, r"\\\1", input)
 
 
 _RESPONDER = GeminiResponder()

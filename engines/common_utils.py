@@ -1,17 +1,16 @@
 import base64
 import json
 import logging
-import re
 import zlib
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import boto3
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
-esc_pattern = re.compile(f"(?<!\\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\\|)")
+logger = logging.getLogger(__name__)
 
 
 def read_ssm_param(param_name: str) -> str:
@@ -24,7 +23,7 @@ def write_ssm_param(param_name: str, value: str) -> None:
     ssm_client.put_parameter(Name=param_name, Value=value, Type="String", Overwrite=True)
 
 
-def read_json_from_s3(bucket_name: str, file_name: str) -> Optional[Any]:
+def read_json_from_s3(bucket_name: str, file_name: str) -> Any | None:
     s3 = boto3.client("s3")
     response = s3.get_object(Bucket=bucket_name, Key=file_name)
     body = response.get("Body", None)
@@ -51,15 +50,11 @@ def encode_message(text: str) -> str:
     return base64.b64encode(zipped).decode("ascii")
 
 
-def escape_markdown_v2(text: str) -> str:
-    return re.sub(pattern=esc_pattern, repl=r"\\\1", string=text)
-
-
-def get_s3_file(s3_uri: str | None, bucket_name: str) -> Optional[str]:
+def get_s3_file(s3_uri: str | None, bucket_name: str) -> str | None:
     if not s3_uri:
         return None
     file_name = urlparse(s3_uri).path.split("/")[-1]
-    logging.info(f"Downloading file 'att/{file_name}' from s3 bucket {bucket_name}")
+    logger.info("Downloading file 'att/%s' from s3 bucket %s", file_name, bucket_name)
     tmp_file = f"/tmp/{file_name}"
     session = boto3.Session()
     session.client("s3").download_file(
@@ -68,8 +63,6 @@ def get_s3_file(s3_uri: str | None, bucket_name: str) -> Optional[str]:
         Filename=tmp_file,
     )
     if not (img := Path(tmp_file)).exists():
-        logging.error(
-            f"File {tmp_file} does not exist. Problem to download from s3 '{s3_uri}'"
-        )
+        logger.error("File %s does not exist. Problem to download from s3 '%s'", tmp_file, s3_uri)
         raise FileNotFoundError(f"Could not find image: {img}")
     return tmp_file

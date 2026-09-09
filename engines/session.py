@@ -9,7 +9,9 @@ Interface summary (everything a caller must know):
 - An :class:`EngineResponder` supplies what varies per engine: its result
   ``label``, whether it keeps a per-user session (``wants_session``), whether
   provider errors should be replied to the user as error text
-  (``reply_on_error``) or raised to the DLQ, and ``answer()`` — provider I/O
+  (``reply_on_error``) or raised to the DLQ, the content ``format`` its
+  answers carry (``"markdown"`` by default, ``"plain"`` for literal text — the
+  Telegram-side renderer keys off it), and ``answer()`` — provider I/O
   that returns one result (``str``, labelled with ``label``) or several
   (``list[(label, text)]``, e.g. DeepL one per target language).
 - ``run_engine_event(payload, request_id, responder)`` owns: command dispatch
@@ -32,7 +34,7 @@ from typing import Protocol
 
 import boto3
 
-from .common_utils import encode_message, escape_markdown_v2, read_ssm_param
+from .common_utils import encode_message, read_ssm_param
 from .user_context import UserContext
 
 logging.basicConfig()
@@ -44,7 +46,11 @@ _sns = None
 
 
 class EngineResponder(Protocol):
-    """The narrow seam each engine module satisfies."""
+    """The narrow seam each engine module satisfies.
+
+    ``label``, ``wants_session`` and ``reply_on_error`` are class attributes;
+    ``format`` is an optional class attribute defaulting to ``"markdown"``.
+    """
 
     label: str
     wants_session: bool
@@ -70,6 +76,7 @@ def run_engine_event(
     """Process one engine request payload end-to-end."""
     text = payload.get("text", "")
     kind = payload.get("type", "")
+    flavor = _responder_format(responder)
 
     if kind == "command":
         _handle_command(payload, request_id, responder, context_factory)
@@ -77,7 +84,9 @@ def run_engine_event(
 
     if "/ping" in text:
         logger.info("Answering pong for %s", responder.label)
-        publish_result(payload, responder.label, "pong", publish=publish)
+        publish_result(
+            payload, responder.label, "pong", publish=publish, format=flavor
+        )
         return
 
     context = (
@@ -97,13 +106,19 @@ def run_engine_event(
             payload.get("user_id"),
             exc_info=e,
         )
-        result = escape_markdown_v2(str(e))
+        result = str(e)
 
     if isinstance(result, str):
-        _save_and_publish(payload, context, responder.label, result, publish)
+        _save_and_publish(payload, context, responder.label, result, publish, flavor)
     else:
         for label, response_text in result:
-            publish_result(payload, label, response_text, publish=publish)
+            publish_result(
+                payload,
+                label,
+                response_text,
+                publish=publish,
+                format=flavor,
+            )
 
 
 def build_context(
@@ -126,10 +141,18 @@ def publish_result(
     text: str,
     *,
     publish: Callable[[dict], None] | None = None,
+    format: str | None = None,
 ) -> None:
-    """Encode one engine result and publish it on the result topic."""
+    """Encode one engine result and publish it on the result topic.
+
+    ``format`` declares the content flavor of ``text`` (see the Telegram-side
+    formatting module); when omitted the result carries no declaration and the
+    sender falls back to its default.
+    """
     result = dict(payload)
     result["engine"] = engine_label
+    if format is not None:
+        result["format"] = format
     result["response"] = encode_message(text)
     (publish or _default_publish)(result)
 
@@ -168,11 +191,17 @@ def _save_and_publish(
     engine_label: str,
     response_text: str,
     publish: Callable[[dict], None] | None,
+    format: str,
 ) -> None:
     if context is not None:
         context.add_turn(payload.get("text", ""), response_text)
         context.persist()
-    publish_result(payload, engine_label, response_text, publish=publish)
+    publish_result(payload, engine_label, response_text, publish=publish, format=format)
+
+
+def _responder_format(responder: EngineResponder) -> str:
+    """The declared content flavor; responders default to ``markdown``."""
+    return getattr(responder, "format", "markdown")
 
 
 def _default_publish(payload: dict) -> None:

@@ -4,7 +4,7 @@ import os
 
 import requests
 
-from .common_utils import escape_markdown_v2, read_ssm_param
+from .common_utils import read_ssm_param
 from .session import EngineResponder, run_engine_event
 from .user_context import UserContext
 
@@ -76,7 +76,8 @@ class OllamaResponder(EngineResponder):
         data = response.json()
         content = data["choices"][0]["message"]["content"].strip()
         logger.info("Received %s chars from model '%s'", len(content), model)
-        return escape_markdown_v2(content)
+        # Raw provider content; the result path renders it for Telegram.
+        return content
 
 
 def _build_messages(text: str, turns: list) -> list:
