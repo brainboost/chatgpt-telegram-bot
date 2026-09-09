@@ -4,7 +4,7 @@ import logging
 import boto3
 from curl_cffi import requests
 
-from .session import build_context, publish_result
+from .session import publish_result
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -63,25 +63,4 @@ def sqs_handler(event, context):
         message = retrieve_images(payload=payload)
         if not message:
             return
-
-        user_id = payload["user_id"]
-        result_id = payload["result_id"]
-        user_context = build_context(
-            payload,
-            request_id=result_id,
-            engine_label=engine_type,
-        )
-        user_context.conversation_id = result_id
-        try:
-            user_context.save_conversation(
-                conversation=payload,
-            )
-        except Exception as e:  # a failed save must not drop the image reply
-            logger.error(
-                "Saving conversation error. User_id: %s_%s, item: %s",
-                user_id,
-                payload["chat_id"],
-                payload,
-                exc_info=e,
-            )
         publish_result(payload, engine_type, message)

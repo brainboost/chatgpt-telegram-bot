@@ -1,4 +1,4 @@
-"""Tests for the engine session runtime (candidate 2 deepening).
+"""Tests for the engine session runtime (candidate 2/3 deepening).
 
 These drive ``run_engine_event`` through its interface — a stub responder, an
 injected session factory and a recording publisher — so the whole
@@ -16,16 +16,19 @@ from engines.session import EngineResponder, run_engine_event
 class FakeContext:
     """Records the session lifecycle calls the runtime makes."""
 
-    def __init__(self):
+    def __init__(self, turns=None):
         self.reset_called = False
-        self.saved = []
-        self.conversation_id = None
+        self.turns = list(turns or [])
+        self.persisted = 0
 
-    def reset_conversation(self):
+    def add_turn(self, request, response):
+        self.turns.append({"request": request, "response": response})
+
+    def persist(self):
+        self.persisted += 1
+
+    def reset(self):
         self.reset_called = True
-
-    def save_conversation(self, conversation):
-        self.saved.append(conversation)
 
 
 class StubResponder(EngineResponder):
@@ -63,8 +66,8 @@ def _decode_response(payload):
     ).decode("utf-8")
 
 
-def _run(payload, responder, **kwargs):
-    context = FakeContext()
+def _run(payload, responder, context=None, **kwargs):
+    context = context or FakeContext()
 
     def factory(payload, request_id, engine_label):
         factory.payload = payload
@@ -98,10 +101,29 @@ def test_single_result_published_and_saved():
     # session built with engine label + composite identity source
     assert factory.engine_label == "stub"
     assert factory.request_id == "req-1"
-    # saved before publish, with a minted conversation id
-    assert len(context.saved) == 1
-    assert context.saved[0] == {"request": "hello engines", "response": "stub answer"}
-    assert context.conversation_id is not None
+    # turn appended then persisted once, before publish
+    assert context.persisted == 1
+    assert context.turns == [{"request": "hello engines", "response": "stub answer"}]
+
+
+def test_history_is_visible_to_the_responder():
+    loaded_turns = [
+        {"request": "earlier q", "response": "earlier a"},
+    ]
+    seen = {}
+
+    def capture(payload, ctx):
+        seen["turns"] = list(ctx.turns)
+        return "fresh answer"
+
+    responder = StubResponder(wants_session=True, answer_fn=capture)
+    context = FakeContext(turns=loaded_turns)
+    context, _, _ = _run(_text_payload("fresh q"), responder, context=context)
+
+    assert seen["turns"] == loaded_turns  # history loaded before the provider call
+    assert context.turns == loaded_turns + [
+        {"request": "fresh q", "response": "fresh answer"}
+    ]
 
 
 def test_multi_result_per_label_published():
@@ -116,9 +138,10 @@ def test_multi_result_per_label_published():
 
     assert [p["engine"] for p in published] == ["EN\\-GB", "PL"]
     assert [_decode_response(p) for p in published] == ["hello", "witaj"]
-    # translate-style responders keep no session
+    # translate-style responders keep no session: nothing saved or persisted
     assert not hasattr(factory, "engine_label")
-    assert context.saved == []
+    assert context.turns == []
+    assert context.persisted == 0
 
 
 def test_ping_publishes_pong_without_history():
@@ -130,7 +153,8 @@ def test_ping_publishes_pong_without_history():
     assert published[0]["engine"] == "stub"
     assert _decode_response(published[0]) == "pong"
     # deliberate behavior change: pong is not saved to conversation history
-    assert context.saved == []
+    assert context.turns == []
+    assert context.persisted == 0
 
 
 def test_command_reset_resets_session_and_publishes_nothing():
@@ -170,7 +194,9 @@ def test_reply_on_error_encodes_error_text():
 
     assert len(published) == 1
     assert _decode_response(published[0]) == "engine exploded"
-    assert len(context.saved) == 1  # error replies are stored like normal ones
+    # error replies are stored like normal ones
+    assert context.persisted == 1
+    assert context.turns == [{"request": "hello engines", "response": "engine exploded"}]
 
 
 def test_raise_on_error_reaches_caller():

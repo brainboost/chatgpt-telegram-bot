@@ -1,131 +1,168 @@
-import datetime
-import json
+"""Per-user conversation memory for one engine.
+
+The deepened conversation-state module (candidate 3): one row per user x engine
+in the ``user-context`` table holds the recent exchanges, bounded and
+self-cleaning via TTL. The contract is real: ``/reset`` deletes the row, chat
+engines read the loaded turns, and nothing grows without bound.
+
+Interface summary (everything a caller must know):
+
+- ``ContextStore`` is a raw I/O seam with two adapters: ``DynamoContextStore``
+  (production, lazy boto3) and ``MemoryContextStore`` (tests). All row shape,
+  key format, turn capping and expiry live in :class:`UserContext`, never in
+  the adapters.
+- ``UserContext(user_id, engine_id, request_id, username=None, store=None)``
+  loads the stored turns at construction. ``store`` defaults to the DynamoDB
+  adapter, so construction stays import-safe (boto3 is only touched on the
+  first store call).
+- After an answer: ``add_turn(request, response)`` then ``persist()``. Each
+  side is trimmed to ``TURN_CHAR_CAP`` characters and at most ``MAX_TURNS``
+  exchanges are kept (oldest dropped). ``persist()`` writes the row with a
+  60-day ``exp`` TTL. ``reset()`` deletes the row and clears memory.
+
+Deliberate shape change: rows are now ``{user_id, engine, turns, exp}``. The
+old ``conversation_id``/``parent_id``/``optional`` columns are no longer
+written; a legacy row without ``turns`` simply reads as an empty memory and is
+overwritten on the next ``persist()``.
+"""
+
 import logging
-from typing import Any, Optional
+import time
+from typing import Protocol
 
 import boto3
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+logger = logging.getLogger(__name__)
+
+CONTEXT_TABLE = "user-context"
+MAX_TURNS = 8  # exchanges kept per user x engine
+TURN_CHAR_CAP = 4000  # per request/response side, keeps the row well under 400 KB
+TTL_DAYS = 60
+
+
+class ContextStore(Protocol):
+    """Raw persistence for one user x engine context row."""
+
+    def load(self, user_id: str, engine_id: str) -> dict | None:
+        """Return the stored row, or None when the user has no memory yet."""
+
+    def save(self, user_id: str, engine_id: str, item: dict) -> None:
+        """Store the row (item carries user_id/engine/turns/exp)."""
+
+    def delete(self, user_id: str, engine_id: str) -> None:
+        """Delete the row for this user x engine."""
+
+
+class DynamoContextStore:
+    """Production adapter: the ``user-context`` table, lazily bound."""
+
+    def __init__(self) -> None:
+        self._table = None
+
+    def _client(self):
+        if self._table is None:
+            self._table = boto3.resource("dynamodb").Table(CONTEXT_TABLE)
+        return self._table
+
+    def load(self, user_id: str, engine_id: str) -> dict | None:
+        try:
+            resp = self._client().get_item(
+                Key={"user_id": user_id, "engine": engine_id}
+            )
+            return resp.get("Item")
+        except Exception as e:  # a read failure must not block the answer
+            logger.error(
+                "Cannot read context for user %s engine %s", user_id, engine_id,
+                exc_info=e,
+            )
+            return None
+
+    def save(self, user_id: str, engine_id: str, item: dict) -> None:
+        try:
+            self._client().put_item(
+                Item={"user_id": user_id, "engine": engine_id, **item}
+            )
+        except Exception as e:
+            logger.error(
+                "Cannot save context for user %s engine %s", user_id, engine_id,
+                exc_info=e,
+            )
+
+    def delete(self, user_id: str, engine_id: str) -> None:
+        try:
+            self._client().delete_item(
+                Key={"user_id": user_id, "engine": engine_id}
+            )
+        except Exception as e:
+            logger.error(
+                "Cannot delete context for user %s engine %s", user_id, engine_id,
+                exc_info=e,
+            )
+
+
+class MemoryContextStore:
+    """Test adapter: keeps rows in a dict, no AWS."""
+
+    def __init__(self) -> None:
+        self.rows: dict[tuple[str, str], dict] = {}
+
+    def load(self, user_id: str, engine_id: str) -> dict | None:
+        return self.rows.get((user_id, engine_id))
+
+    def save(self, user_id: str, engine_id: str, item: dict) -> None:
+        self.rows[(user_id, engine_id)] = {"user_id": user_id, "engine": engine_id, **item}
+
+    def delete(self, user_id: str, engine_id: str) -> None:
+        self.rows.pop((user_id, engine_id), None)
 
 
 class UserContext:
+    """One engine's conversation memory for one user (composite user key)."""
+
     def __init__(
         self,
         user_id: str,
         engine_id: str,
         request_id: str,
-        username: Optional[str],
+        username: str | None = None,
+        store: ContextStore | None = None,
     ) -> None:
         self.user_id = user_id
-        self.username = username or "anonymous"
         self.engine_id = engine_id
         self.request_id = request_id
-        dynamodb = boto3.resource("dynamodb")
-        self.context_table = dynamodb.Table("user-context") # type: ignore
-        self.conversations_table = dynamodb.Table("user-conversations") # type: ignore
-        self.context = self.read_context()
-        self.conversation_id = self.__get_conversation_id()
-        self.parent_id = self.__get_parent_id()
+        self.username = username or "anonymous"
+        self._store: ContextStore = store if store is not None else DynamoContextStore()
+        item = self._store.load(user_id, engine_id)
+        self._turns: list = item.get("turns", []) if item else []
 
-    def reset_conversation(self) -> None:
-        logging.info(f"Reset conversation {self.conversation_id}")
-        self.context_table.delete_item(
-            Key={
-                "conversation_id": {
-                    "S": self.conversation_id,
-                }
-            },
-            Table="conversation-id-index",
-        )
-        self.conversation_id = None
+    @property
+    def turns(self) -> list:
+        """Loaded exchanges, oldest first: [{request, response}, ...]."""
+        return self._turns
 
-    def read_context(self) -> Optional[Any]:
-        logging.info(f"Read user context {self.user_id}")
-        try:
-            resp = self.context_table.get_item(
-                Key={"user_id": self.user_id, "engine": self.engine_id}
-            )
-            if "Item" in resp and resp["Item"]:
-                item = resp["Item"]
-                return {
-                    "user_id": item["user_id"],
-                    "engine": item["engine"],
-                    "conversation_id": item["conversation_id"],
-                    "parent_id": item["parent_id"],
-                    "optional": json.loads(item["optional"] or ""),
-                    "exp": int(item["exp"]),
-                }
-        except Exception as e:
-            logging.error(
-                f"Cannot read from 'user-context' table with PK '{self.user_id}' and SK '{self.engine_id}'",
-                exc_info=e,
-            )
-        return None
-
-    def save_context(self, optional_context: Optional[Any] = None) -> None:
-        logging.info(f"Save user context for {self.user_id}, engine {self.engine_id}")
-        tme = datetime.datetime.utcnow()
-        exp_time = tme + datetime.timedelta(days=60)
-        self.context_table.put_item(
-            Item={
-                "user_id": self.user_id,
-                "engine": self.engine_id,
-                "conversation_id": self.conversation_id,
-                "parent_id": self.parent_id,
-                "optional": json.dumps(optional_context or {}),
-                "exp": int(exp_time.timestamp()),
+    def add_turn(self, request: str, response: str) -> None:
+        self._turns.append(
+            {
+                "request": request[:TURN_CHAR_CAP],
+                "response": response[:TURN_CHAR_CAP],
             }
         )
+        if len(self._turns) > MAX_TURNS:
+            self._turns = self._turns[-MAX_TURNS:]
 
-    def save_conversation(
-        self,
-        conversation: Optional[Any] = None,
-    ) -> None:
-        logging.info(f"Save conversation for {self.user_id}, engine {self.engine_id}")
-        tme = datetime.datetime.utcnow()
-        try:
-            self.save_context(optional_context=None)
-            if self.conversation_id:
-                self.conversations_table.put_item(
-                    Item={
-                        "conversation_id": self.conversation_id,
-                        "request_id": self.request_id,
-                        "user_id": self.user_id,
-                        "engine": self.engine_id,
-                        "timestamp": int(tme.timestamp()),
-                        "conversation": json.dumps(conversation or {}),
-                    }
-                )
-        except Exception as e:
-            logging.error(
-                f"save_conversation failed with error. User: {self.user_id}, engine_id: {self.engine_id}, conversation_id: {self.conversation_id}",
-                exc_info=e,
-            )
+    def persist(self) -> None:
+        self._store.save(
+            self.user_id,
+            self.engine_id,
+            {
+                "turns": self._turns,
+                "exp": int(time.time()) + TTL_DAYS * 24 * 3600,
+            },
+        )
 
-    def read_conversation(self) -> Optional[Any]:
-        try:
-            resp = self.conversations_table.get_item(
-                Key={
-                    "conversation_id": self.conversation_id,
-                    "request_id": self.request_id,
-                }
-            )
-            if "Item" in resp:
-                return json.loads(resp["Item"]["conversation"])
-            return None
-        except Exception as e:
-            logging.error(
-                f"read_conversation filed with error. User: {self.user_id}, engine_id: {self.engine_id}, request_id: {self.request_id}, conversation_id: {self.conversation_id}",
-                exc_info=e,
-            )
-
-    def __get_conversation_id(self) -> Optional[str]:
-        if self.context:
-            self.context.get("conversation_id", None)
-        return None
-
-    def __get_parent_id(self) -> Optional[str]:
-        if self.context:
-            self.context.get("parent_id", None)
-        return None
+    def reset(self) -> None:
+        """Forget this engine's memory for the user."""
+        self._store.delete(self.user_id, self.engine_id)
+        self._turns = []

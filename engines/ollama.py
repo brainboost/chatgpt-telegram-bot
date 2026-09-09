@@ -23,8 +23,6 @@ engine_type = os.environ.get("OLLAMA_ENGINE", "llama")
 model = os.environ.get("OLLAMA_MODEL", "llama4:maverick")
 request_timeout = 270  # seconds; engines have a 5-minute Lambda timeout
 
-api_key = read_ssm_param(param_name="OLLAMA_API_KEY")
-
 
 class OllamaError(Exception):
     """A failed Ollama Cloud request, surfaced to the user as error text."""
@@ -35,15 +33,21 @@ class OllamaResponder(EngineResponder):
     wants_session = True
     reply_on_error = True  # provider failures are replied as error text
 
+    def __init__(self) -> None:
+        self._api_key: str | None = None
+
     def answer(self, payload: dict, context: UserContext | None) -> str:
         text = payload.get("text", "")
+        if self._api_key is None:
+            self._api_key = read_ssm_param(param_name="OLLAMA_API_KEY")
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
+        turns = context.turns if context is not None else []
         body = {
             "model": model,
-            "messages": [{"role": "user", "content": text}],
+            "messages": _build_messages(text, turns),
             "stream": False,
             "max_tokens": 1024,
             "temperature": 0.7,
@@ -73,6 +77,16 @@ class OllamaResponder(EngineResponder):
         content = data["choices"][0]["message"]["content"].strip()
         logger.info("Received %s chars from model '%s'", len(content), model)
         return escape_markdown_v2(content)
+
+
+def _build_messages(text: str, turns: list) -> list:
+    """Alternating user/assistant messages from stored turns, then the new text."""
+    messages = []
+    for turn in turns:
+        messages.append({"role": "user", "content": turn["request"]})
+        messages.append({"role": "assistant", "content": turn["response"]})
+    messages.append({"role": "user", "content": text})
+    return messages
 
 
 _RESPONDER = OllamaResponder()

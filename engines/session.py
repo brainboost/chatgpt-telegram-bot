@@ -27,7 +27,6 @@ this module (and the engine modules that use it) has no SSM side effects.
 
 import json
 import logging
-import uuid
 from collections.abc import Callable
 from typing import Protocol
 
@@ -145,7 +144,7 @@ def _handle_command(
     if "reset" in command:
         context = _build_session(payload, request_id, responder, context_factory)
         if context is not None:
-            context.reset_conversation()
+            context.reset()
         logger.info(
             "Conversation reset for %s (engine %s)", payload.get("user_id"), responder.label
         )
@@ -171,14 +170,8 @@ def _save_and_publish(
     publish: Callable[[dict], None] | None,
 ) -> None:
     if context is not None:
-        if context.conversation_id is None:
-            context.conversation_id = str(uuid.uuid4())
-        context.save_conversation(
-            conversation={
-                "request": payload.get("text", ""),
-                "response": response_text,
-            },
-        )
+        context.add_turn(payload.get("text", ""), response_text)
+        context.persist()
     publish_result(payload, engine_label, response_text, publish=publish)
 
 

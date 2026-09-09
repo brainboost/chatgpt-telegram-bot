@@ -30,14 +30,10 @@ class GeminiResponder(EngineResponder):
         text = payload.get("text", "")
         if _client is None:
             create()
-        response = _client.models.generate_content_stream(
+        turns = context.turns if context is not None else []
+        response = _client.models.generate_content_stream(  # ty: ignore[unresolved-attribute]
             model=model,
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[types.Part.from_text(text=text)],
-                ),
-            ],
+            contents=_build_contents(text, turns),
             config=_generation_config,
         )
         answer = ""
@@ -46,6 +42,26 @@ class GeminiResponder(EngineResponder):
                 continue
             answer += chunk.parts[0].text
         return __as_markdown(answer)
+
+
+def _build_contents(text: str, turns: list) -> list:
+    """Alternating user/model parts from stored turns, then the new text."""
+    contents = []
+    for turn in turns:
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=turn["request"])],
+            )
+        )
+        contents.append(
+            types.Content(
+                role="model",
+                parts=[types.Part.from_text(text=turn["response"])],
+            )
+        )
+    contents.append(types.Content(role="user", parts=[types.Part.from_text(text=text)]))
+    return contents
 
 
 def create() -> None:
