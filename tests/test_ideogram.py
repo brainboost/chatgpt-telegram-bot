@@ -30,7 +30,9 @@ def test_refresh(capsys):
         assert not is_expired(data["access_token"])
 
 
-# @pytest.mark.skip()
+# Live test: requires AWS credentials, the BOT_S3_BUCKET SSM param and a
+# seeded google_auth.json auth file in that bucket (see UPDATE_VARS.md).
+@pytest.mark.skip()
 def test_request_images(capsys):
     with capsys.disabled():
         response = request_images(
