@@ -595,13 +595,29 @@ async def error_handle(update: Update, context: CallbackContext) -> None:
 # Lambda message handler
 
 
-def telegram_api_handler(event, context):
-    # asyncio.run() creates a fresh loop per invocation; get_event_loop() raises on
-    # Python >= 3.12 when no loop is current (as in a Lambda handler thread).
-    return asyncio.run(_main(event))
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply to a command no registered handler owns.
+
+    Registered before the generic text handler so stray /commands never leak
+    into an engine request.
+    """
+    if update.effective_message is None:
+        return
+    await update.effective_message.reply_text(
+        text="Unknown command. Use /help to list available commands."
+    )
 
 
-async def _main(event):
+def register_handlers(app) -> None:
+    """Attach the handler tree exactly once, at import time.
+
+    Registration is off the request path: re-registering on every Lambda
+    invocation would grow the handler list unboundedly on warm containers.
+    Ordering is load-bearing — PTB runs only the first matching handler in a
+    group — so known commands come first, then the translation conversation,
+    the media handlers, the unknown-command catch-all, and finally the generic
+    text handler (which explicitly excludes commands).
+    """
     app.add_handler(CommandHandler("start", start_handler, filters=filters.COMMAND))
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
@@ -642,8 +658,24 @@ async def _main(event):
     app.add_handler(
         MessageHandler(filters=filters.ATTACHMENT, callback=process_attachment)
     )
-    app.add_handler(MessageHandler(filters=filters.ALL, callback=process_message))
+    app.add_handler(MessageHandler(filters=filters.COMMAND, callback=unknown_command))
+    app.add_handler(
+        MessageHandler(
+            filters=filters.TEXT & ~filters.COMMAND, callback=process_message
+        )
+    )
 
+
+register_handlers(app)
+
+
+def telegram_api_handler(event, context):
+    # asyncio.run() creates a fresh loop per invocation; get_event_loop() raises on
+    # Python >= 3.12 when no loop is current (as in a Lambda handler thread).
+    return asyncio.run(_main(event))
+
+
+async def _main(event):
     try:
         await app.initialize()
         update = Update.de_json(json.loads(event["body"]), bot)
