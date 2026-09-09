@@ -19,6 +19,7 @@ lambda = [
     "python-telegram-bot>=22.8",
     "requests>=2.34.2",
     "boto3>=1.43.89",
+    "pydantic>=2.10",
 ]
 engines = [
     "google-genai>=2.22.0",

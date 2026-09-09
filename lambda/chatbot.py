@@ -24,6 +24,14 @@ from telegram.ext import (
 )
 
 from .help_command import help_handler, start_handler
+from .request_message import (
+    CommandRequest,
+    IdeogramRequest,
+    RequestMessage,
+    TextRequest,
+    TranslateRequest,
+    to_sns_message,
+)
 from .user_config import UserConfig
 from .utils import (
     escape_markdown_v2,
@@ -61,6 +69,18 @@ bot = app.bot
 logging.info("application startup")
 logging.info(f"admins:{admins}")
 
+
+def _request_fields(update: Update) -> dict:
+    """Common Telegram identity fields carried by every request kind."""
+    return {
+        "user_id": update.effective_user.id,
+        "chat_id": update.effective_chat.id,
+        "username": update.effective_user.name,
+        "message_id": update.effective_message.id,
+        "update_id": update.update_id,
+    }
+
+
 # Telegram commands
 
 
@@ -74,18 +94,11 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    envelop = {
-        "type": "command",
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": update.effective_message.text,
-        "chat_id": getattr(update.effective_chat, "id", None),
-        "timestamp": update.effective_message.date.timestamp,
-        "engines": config["engines"],
-    }
-    sns.publish(TopicArn=sns_topic, Message=json.dumps(envelop))
+    request = CommandRequest(
+        **_request_fields(update),
+        text=update.effective_message.text,
+    )
+    await __publish(request, engines=config["engines"])
     await update.effective_message.reply_text(text="Conversation has been reset")
 
 
@@ -163,11 +176,8 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    command = update.effective_message.text.strip("/").split()[0].lower()
-    if command == "imagine":
-        command = "ideogram"
     try:
-        await __process_images(update, context, config, command)
+        await __process_images(update, context, config)
     except Exception as e:
         logging.error(str(e))
         await update.effective_message.reply_text(
@@ -399,18 +409,12 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
     try:
         user_id = int(update.effective_message.from_user.id)
         config = user_config.read(user_id)
-        envelop = {
-            "type": "text",
-            "user_id": user_id,
-            "username": update.effective_user.name,
-            "update_id": update.update_id,
-            "message_id": update.effective_message.id,
-            "text": transcript_msg,
-            "chat_id": update.effective_chat.id,
-            "timestamp": update.effective_message.date.timestamp(),
-            "config": config,
-        }
-        await __send_envelop(envelop, json.dumps(config["engines"]))
+        request = TextRequest(
+            **_request_fields(update),
+            text=transcript_msg,
+            config=config,
+        )
+        await __publish(request, engines=config["engines"])
     except Exception as e:
         logging.error(
             msg="Exception occured during voice message processing",
@@ -428,20 +432,12 @@ async def process_upload(
     logging.info(f"File uploaded {path}")
     user_id = int(update.effective_user.id)
     config = user_config.read(user_id)
-    envelop = {
-        "type": "text",
-        "user_id": user_id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": update.message.caption,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-        "file": path,
-    }
-    # logging.info(envelop)
-    await __send_envelop(envelop, json.dumps(config["engines"]))
+    request = TextRequest(
+        **_request_fields(update),
+        text=update.message.caption or "",
+        config=config,
+    )
+    await __publish(request, engines=config["engines"])
 
 
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -517,18 +513,12 @@ async def __process_text(
     config: UserConfig,
 ):
     chat_text = update.effective_message.text.replace(bot.name, "")
-    envelop = {
-        "type": "text",
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": chat_text,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-    }
-    await __send_envelop(envelop, json.dumps(config["engines"]))
+    request = TextRequest(
+        **_request_fields(update),
+        text=chat_text,
+        config=config,
+    )
+    await __publish(request, engines=config["engines"])
 
 
 @send_typing_action
@@ -538,63 +528,50 @@ async def __process_translation(
     text: str,
     lang: str = "PL",
 ):
-    envelop = {
-        "type": "translate",
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": text,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "languages": lang.upper(),
-    }
-    await __send_envelop(envelop)
+    request = TranslateRequest(
+        **_request_fields(update),
+        text=text,
+        languages=lang.upper(),
+    )
+    await __publish(request)
 
 
 async def __process_images(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     config: dict,
-    img_type: str,
 ):
     if context.args is None:
         return
 
     prompt = " ".join(context.args)
     logging.info(prompt)
-    envelop = {
-        "type": img_type,
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": prompt,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-    }
-    logging.info(envelop)
-    await __send_envelop(envelop)
-
-
-async def __send_envelop(envelop: Any, engines: Optional[str] = None) -> None:
-    logging.info(
-        "Sending envelop to topic {} with engines {}".format(sns_topic, engines)
+    request = IdeogramRequest(
+        **_request_fields(update),
+        text=prompt,
+        config=config,
     )
-    attrs = {
-        "type": {"DataType": "String", "StringValue": envelop["type"]},
-    }
-    if engines:
-        attrs["engines"] = {"DataType": "String.Array", "StringValue": engines}
+    logging.info(request.model_dump(exclude_none=True))
+    await __publish(request)
+
+
+async def __publish(request: RequestMessage, engines: Optional[list] = None) -> None:
+    """Publish a typed request to the engines topic; transport only."""
+    body, attrs = to_sns_message(request, engines)
+    logging.info(
+        "Publishing %s request to topic %s (engines: %s)",
+        request.type,
+        sns_topic,
+        engines,
+    )
     try:
         sns.publish(
             TopicArn=sns_topic,
-            Message=json.dumps(envelop),
+            Message=body,
             MessageAttributes=attrs,
         )
     except Exception as e:
-        logging.error("Can't send envelop to request topic", exc_info=e)
+        logging.error("Can't publish request to request topic", exc_info=e)
 
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
