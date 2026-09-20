@@ -1,49 +1,55 @@
 import json
 import logging
-from typing import Any
 
-import boto3
 from deepl import Translator
 
-from .common_utils import encode_message, escape_markdown_v2, read_ssm_param
+from .common_utils import read_ssm_param
+from .session import EngineResponder, run_engine_event
+from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
-
+logger = logging.getLogger(__name__)
 
 auth_key = read_ssm_param(param_name="DEEPL_AUTHKEY")
-
 translator = Translator(auth_key)
-result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
-sns = boto3.session.Session().client("sns")
 
 
-def __parse_languages(lang: str) -> list:
-    langs = lang.upper().split(",")
-    return langs
+class DeepLResponder(EngineResponder):
+    label = "deepl"
+    wants_session = False  # translations persist nothing
+    reply_on_error = True  # a failing language is replied as error text
+    format = "plain"  # translations are literal text, never Markdown
 
-def __process_payload(payload: Any, request_id: str) -> None:
-    # logging.info(payload)
-    languages = __parse_languages(payload["languages"])
-    for lang in languages:
-        try:
-            response = translator.translate_text(
-                payload["text"].replace("/tr", ""), target_lang=lang.strip()
-            )
-            result = escape_markdown_v2(response.text)
-        except Exception as e:
-            logging.error(e)
-            result = escape_markdown_v2(str(e))
+    def answer(
+        self,
+        payload: dict,
+        context: UserContext | None,
+    ) -> list:
+        """Translate into every requested language; one result per language."""
+        languages = payload["languages"].upper().split(",")
+        results = []
+        for lang in languages:
+            try:
+                response = translator.translate_text(
+                    payload["text"].replace("/tr", ""),
+                    target_lang=lang.strip(),
+                )
+                result = response.text
+            except Exception as e:  # any per-language failure becomes an error reply
+                logger.error("Translation to %s failed", lang, exc_info=e)
+                result = str(e)
+            results.append((lang.strip(), result))
+        return results
 
-        payload["engine"] = lang.replace("-", "\\-")
-        payload["response"] = encode_message(result)
-        sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
+
+_RESPONDER = DeepLResponder()
 
 
 def sns_handler(event, context):
-    """AWS SNS event handler"""
+    """AWS SNS event handler for the DeepL engine Lambda."""
     request_id = context.aws_request_id
-    logging.info(f"Request ID: {request_id}")
+    logger.info("Request ID: %s", request_id)
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
-        __process_payload(payload, request_id)
+        run_engine_event(payload, request_id, _RESPONDER)

@@ -4,6 +4,8 @@ import time
 
 import boto3
 
+import providers
+
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
@@ -29,7 +31,7 @@ class UserConfig:
     def create_config(self, user_id: int) -> dict:
         return {
             "user_id": user_id,
-            "engines": ["gemini"],
+            "engines": [providers.DEFAULT_CHAT_PROVIDER],
             "languages": "pl,en-gb",
             "updated": int(time.time()),
         }

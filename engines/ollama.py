@@ -1,16 +1,16 @@
 import json
 import logging
 import os
-from typing import Any
 
-import boto3
 import requests
 
-from .common_utils import encode_message, escape_markdown_v2, read_ssm_param
+from .common_utils import read_ssm_param
+from .session import EngineResponder, run_engine_event
 from .user_context import UserContext
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+logger = logging.getLogger(__name__)
 
 # One shared OpenAI-compatible provider module for all Ollama Cloud engines.
 # Each engine Lambda is configured by CDK through environment variables:
@@ -23,90 +23,81 @@ engine_type = os.environ.get("OLLAMA_ENGINE", "llama")
 model = os.environ.get("OLLAMA_MODEL", "llama4:maverick")
 request_timeout = 270  # seconds; engines have a 5-minute Lambda timeout
 
-api_key = read_ssm_param(param_name="OLLAMA_API_KEY")
-result_topic = read_ssm_param(param_name="RESULT_SNS_TOPIC_ARN")
-sns = boto3.session.Session().client("sns")
+
+class OllamaError(Exception):
+    """A failed Ollama Cloud request, surfaced to the user as error text."""
 
 
-def process_command(input: str, context: UserContext) -> None:
-    command = input.removeprefix(prefix="/").lower()
-    logging.info(f"Processing command {command} for {context.user_id}")
-    if "reset" in command:
-        context.reset_conversation()
-        logging.info(f"Conversation hass been reset for {context.user_id}")
-        return
-    logging.error(f"Unknown command {command}")
+class OllamaResponder(EngineResponder):
+    label = engine_type
+    wants_session = True
+    reply_on_error = True  # kept for the responder contract; failover intercepts errors
+    fails_over = True  # provider failures advance the chat failover chain
 
+    def __init__(self) -> None:
+        self._api_key: str | None = None
 
-def ask(text: str, context: UserContext) -> str:
-    if "/ping" in text:
-        return "pong"
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": text}],
-        "stream": False,
-        "max_tokens": 1024,
-        "temperature": 0.7,
-    }
-    logging.info(f"Sending request to Ollama model '{model}' for {context.user_id}")
-    response = requests.post(
-        url=f"{OLLAMA_BASE_URL}/chat/completions",
-        headers=headers,
-        data=json.dumps(payload),
-        timeout=request_timeout,
-    )
-    if not response.ok:
-        logging.error(
-            f"Ollama request failed: {response.status_code} {response.reason} {response.text}"
+    def answer(self, payload: dict, context: UserContext | None) -> str:
+        text = payload.get("text", "")
+        if self._api_key is None:
+            self._api_key = read_ssm_param(param_name="OLLAMA_API_KEY")
+        headers = {
+            "Authorization": f"Bearer {self._api_key}",
+            "Content-Type": "application/json",
+        }
+        turns = context.turns if context is not None else []
+        body = {
+            "model": model,
+            "messages": _build_messages(text, turns),
+            "stream": False,
+            "max_tokens": 1024,
+            "temperature": 0.7,
+        }
+        logger.info(
+            "Sending request to Ollama model '%s' for user %s",
+            model,
+            payload.get("user_id"),
         )
-        raise Exception(
-            f"Ollama ({model}) request returned {response.status_code}: {response.text[:500]}"
+        response = requests.post(
+            url=f"{OLLAMA_BASE_URL}/chat/completions",
+            headers=headers,
+            data=json.dumps(body),
+            timeout=request_timeout,
         )
-    data = response.json()
-    content = data["choices"][0]["message"]["content"].strip()
-    logging.info(f"Received {len(content)} chars from model '{model}'")
-    return escape_markdown_v2(content)
+        if not response.ok:
+            logger.error(
+                "Ollama request failed: %s %s %s",
+                response.status_code,
+                response.reason,
+                response.text,
+            )
+            raise OllamaError(
+                f"Ollama ({model}) request returned {response.status_code}: {response.text[:500]}"
+            )
+        data = response.json()
+        content = data["choices"][0]["message"]["content"].strip()
+        logger.info("Received %s chars from model '%s'", len(content), model)
+        # Raw provider content; the result path renders it for Telegram.
+        return content
 
 
-def __process_payload(payload: Any, request_id: str) -> None:
-    user_id = payload["user_id"]
-    user_context = UserContext(
-        user_id=f"{user_id}_{payload['chat_id']}",
-        request_id=request_id,
-        engine_id=engine_type,
-        username=payload["username"],
-    )
-    text = payload["text"]
-    if "command" in payload["type"]:
-        process_command(input=text, context=user_context)
-        return
+def _build_messages(text: str, turns: list) -> list:
+    """Alternating user/assistant messages from stored turns, then the new text."""
+    messages = []
+    for turn in turns:
+        messages.append({"role": "user", "content": turn["request"]})
+        messages.append({"role": "assistant", "content": turn["response"]})
+    messages.append({"role": "user", "content": text})
+    return messages
 
-    try:
-        response = ask(text=text, context=user_context)
-    except Exception as e:
-        logging.error(
-            f"Ollama engine '{engine_type}' failed for user {user_id}",
-            exc_info=e,
-        )
-        response = escape_markdown_v2(str(e))
 
-    user_context.save_conversation(
-        conversation={"request": text, "response": response},
-    )
-    payload["response"] = encode_message(response)
-    payload["engine"] = engine_type
-    sns.publish(TopicArn=result_topic, Message=json.dumps(payload))
+_RESPONDER = OllamaResponder()
 
 
 def sns_handler(event, context):
-    """AWS SNS event handler"""
+    """AWS SNS event handler for Ollama Cloud engine Lambdas."""
     request_id = context.aws_request_id
-    logging.info(f"Request ID: {request_id}")
+    logger.info("Request ID: %s", request_id)
     for record in event["Records"]:
         payload = json.loads(record["Sns"]["Message"])
-        __process_payload(payload, request_id)
+        run_engine_event(payload, request_id, _RESPONDER)

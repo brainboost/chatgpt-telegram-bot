@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 import boto3
 import boto3.session
@@ -14,7 +14,6 @@ from telegram import (
     constants,
 )
 from telegram.ext import (
-    Application,
     CallbackContext,
     CommandHandler,
     ContextTypes,
@@ -23,17 +22,27 @@ from telegram.ext import (
     filters,
 )
 
+import providers
+
+from .formatting import assemble_plain_reply, format_text
 from .help_command import help_handler, start_handler
+from .request_message import (
+    CommandRequest,
+    IdeogramRequest,
+    RequestMessage,
+    TextRequest,
+    TranslateRequest,
+    to_sns_message,
+)
+from .runtime import create_application, process_update_event
 from .user_config import UserConfig
 from .utils import (
-    escape_markdown_v2,
     generate_transcription,
     read_ssm_param,
     recursive_stringify,
     restricted,
     send_action,
     send_typing_action,
-    split_long_message,
     upload_to_s3,
 )
 
@@ -41,6 +50,7 @@ LANG, TEXT = range(2)
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
+logger = logging.getLogger(__name__)
 
 user_config = UserConfig()
 sns = boto3.session.Session().client("sns")
@@ -49,17 +59,35 @@ sns = boto3.session.Session().client("sns")
 telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
 sns_topic = read_ssm_param(param_name="REQUESTS_SNS_TOPIC_ARN")
 admins = [read_ssm_param(param_name="TELEGRAM_BOT_ADMINS")]
-app = (
-    Application.builder()
-    .token(token=telegram_token)
-    .concurrent_updates(True)
-    .http_version("1.1")
-    .get_updates_http_version("1.1")
-    .build()
-)
+app = create_application(telegram_token)
 bot = app.bot
 logging.info("application startup")
 logging.info(f"admins:{admins}")
+
+
+def _request_fields(update: Update) -> dict:
+    """Common Telegram identity fields carried by every request kind."""
+    return {
+        "user_id": update.effective_user.id,
+        "chat_id": update.effective_chat.id,
+        "username": update.effective_user.name,
+        "message_id": update.effective_message.id,
+        "update_id": update.update_id,
+    }
+
+
+def _chat_provider(config: dict) -> list[str]:
+    """Routing list for one chat request: the conversation-start provider.
+
+    The user-config ``engines`` field (legacy name) holds the chain start —
+    which provider begins answering, kept across sessions so follow-ups stay
+    on the same model. Provider failures advance the chain worker-side.
+    """
+    engines = config.get("engines") or []
+    if engines:
+        return [engines[0]]
+    return [providers.DEFAULT_CHAT_PROVIDER]
+
 
 # Telegram commands
 
@@ -72,20 +100,12 @@ async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     ):
         return
 
-    user_id = update.effective_user.id
-    config = user_config.read(user_id)
-    envelop = {
-        "type": "command",
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": update.effective_message.text,
-        "chat_id": getattr(update.effective_chat, "id", None),
-        "timestamp": update.effective_message.date.timestamp,
-        "engines": config["engines"],
-    }
-    sns.publish(TopicArn=sns_topic, Message=json.dumps(envelop))
+    request = CommandRequest(
+        **_request_fields(update),
+        text=update.effective_message.text,
+    )
+    # Memory lives per provider in the failover chain, so clear all of them.
+    await __publish(request, engines=list(providers.chat_provider_ids()))
     await update.effective_message.reply_text(text="Conversation has been reset")
 
 
@@ -109,7 +129,13 @@ async def set_style(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 @send_typing_action
-async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def select_provider(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/gemini | /qwen | /llama — pick the conversation-start provider.
+
+    The choice is persisted in the user config (``engines`` field) so follow-up
+    sessions keep answering with the same model; provider failures still fall
+    back along the catalog chain automatically.
+    """
     if (
         update.effective_user is None
         or update.effective_message is None
@@ -119,30 +145,24 @@ async def engines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    username = update.effective_user.username
-    config["username"] = username
-    engine_types = (
-        update.effective_message.text.strip("/")
-        .split("@")[0]
-        .lower()
-        .replace("engines", "")
-        .replace(" ", "")
-        .strip()
-    )
-    logging.info(f"engines: {engine_types}")
-    if not engine_types:
-        engine_types = config["engines"]
-        await update.effective_message.reply_text(text=f"Bot engines: {engine_types}")
+    provider = update.effective_message.text.strip("/").split("@")[0].lower()
+    if not providers.is_chat_provider(provider):
+        valid = ", ".join(providers.chat_provider_ids())
+        await update.effective_message.reply_text(
+            text=f"Unknown provider '{provider}'. Available: {valid}"
+        )
         return
 
-    if "," in engine_types:
-        config["engines"] = engine_types.split(",")
-    else:
-        config["engines"] = [engine_types]
-    logging.info(f"User {username} {user_id} set engines to '{engine_types}'")
+    config["engines"] = [provider]
     user_config.write(user_id, config)
+    logger.info(
+        "User %s set conversation-start provider to '%s'", user_id, provider
+    )
     await update.effective_message.reply_text(
-        text=f"Bot engines has been set to {engine_types}"
+        text=(
+            f"Conversations will start with {providers.provider_label(provider)}. "
+            "If it is unavailable, the bot falls back automatically."
+        )
     )
 
 
@@ -163,11 +183,8 @@ async def imagine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     user_id = update.effective_user.id
     config = user_config.read(user_id)
-    command = update.effective_message.text.strip("/").split()[0].lower()
-    if command == "imagine":
-        command = "ideogram"
     try:
-        await __process_images(update, context, config, command)
+        await __process_images(update, context, config)
     except Exception as e:
         logging.error(str(e))
         await update.effective_message.reply_text(
@@ -188,15 +205,14 @@ async def grab_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logging.info(f"{results}")
         if length == 0:
             results = ["No error messages found"]
-        else:
-            text = recursive_stringify(results)
-            parts = split_long_message(text, "logs", 4060)
-            for part in parts:
-                await update.effective_message.reply_text(text=part)
+        text = recursive_stringify(results)
+        parts = assemble_plain_reply(text, "logs")
+        for part in parts:
+            await update.effective_message.reply_text(text=part)
     except Exception as e:
         logging.error(e)
         await update.effective_message.reply_text(
-            text=f"Error: ```{str(e)}```",
+            text=f"Error: ```{e!s}```",
             parse_mode=constants.ParseMode.MARKDOWN_V2,
         )
 
@@ -301,7 +317,7 @@ def __start_redrive_dlq() -> Any:
             except ClientError as e:
                 logging.error(f"Redriving DLQ messages error :{e}")
                 return f"DLQ Redrive failed for {queue_url}"
-    return escape_markdown_v2("Finished DLQ redrive. {} messages moved".format(count))
+    return format_text(f"Finished DLQ redrive. {count} messages moved")
 
 
 # Translation handlers
@@ -392,25 +408,19 @@ async def process_voice_message(update: Update, context: ContextTypes.DEFAULT_TY
     transcript_msg = await generate_transcription(file)
     logging.info(transcript_msg)
     await update.effective_message.reply_text(
-        text=escape_markdown_v2(transcript_msg),
+        text=format_text(transcript_msg),
         disable_notification=True,
         parse_mode=constants.ParseMode.MARKDOWN_V2,
     )
     try:
         user_id = int(update.effective_message.from_user.id)
         config = user_config.read(user_id)
-        envelop = {
-            "type": "text",
-            "user_id": user_id,
-            "username": update.effective_user.name,
-            "update_id": update.update_id,
-            "message_id": update.effective_message.id,
-            "text": transcript_msg,
-            "chat_id": update.effective_chat.id,
-            "timestamp": update.effective_message.date.timestamp(),
-            "config": config,
-        }
-        await __send_envelop(envelop, json.dumps(config["engines"]))
+        request = TextRequest(
+            **_request_fields(update),
+            text=transcript_msg,
+            config=config,
+        )
+        await __publish(request, engines=_chat_provider(config))
     except Exception as e:
         logging.error(
             msg="Exception occured during voice message processing",
@@ -428,20 +438,12 @@ async def process_upload(
     logging.info(f"File uploaded {path}")
     user_id = int(update.effective_user.id)
     config = user_config.read(user_id)
-    envelop = {
-        "type": "text",
-        "user_id": user_id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": update.message.caption,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-        "file": path,
-    }
-    # logging.info(envelop)
-    await __send_envelop(envelop, json.dumps(config["engines"]))
+    request = TextRequest(
+        **_request_fields(update),
+        text=update.message.caption or "",
+        config=config,
+    )
+    await __publish(request, engines=_chat_provider(config))
 
 
 async def process_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -517,18 +519,12 @@ async def __process_text(
     config: UserConfig,
 ):
     chat_text = update.effective_message.text.replace(bot.name, "")
-    envelop = {
-        "type": "text",
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": chat_text,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-    }
-    await __send_envelop(envelop, json.dumps(config["engines"]))
+    request = TextRequest(
+        **_request_fields(update),
+        text=chat_text,
+        config=config,
+    )
+    await __publish(request, engines=_chat_provider(config))
 
 
 @send_typing_action
@@ -538,89 +534,97 @@ async def __process_translation(
     text: str,
     lang: str = "PL",
 ):
-    envelop = {
-        "type": "translate",
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": text,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "languages": lang.upper(),
-    }
-    await __send_envelop(envelop)
+    request = TranslateRequest(
+        **_request_fields(update),
+        text=text,
+        languages=lang.upper(),
+    )
+    await __publish(request)
 
 
 async def __process_images(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
     config: dict,
-    img_type: str,
 ):
     if context.args is None:
         return
 
     prompt = " ".join(context.args)
     logging.info(prompt)
-    envelop = {
-        "type": img_type,
-        "user_id": update.effective_user.id,
-        "username": update.effective_user.name,
-        "update_id": update.update_id,
-        "message_id": update.effective_message.id,
-        "text": prompt,
-        "chat_id": update.effective_chat.id,
-        "timestamp": update.effective_message.date.timestamp(),
-        "config": config,
-    }
-    logging.info(envelop)
-    await __send_envelop(envelop)
-
-
-async def __send_envelop(envelop: Any, engines: Optional[str] = None) -> None:
-    logging.info(
-        "Sending envelop to topic {} with engines {}".format(sns_topic, engines)
+    request = IdeogramRequest(
+        **_request_fields(update),
+        text=prompt,
+        config=config,
     )
-    attrs = {
-        "type": {"DataType": "String", "StringValue": envelop["type"]},
-    }
-    if engines:
-        attrs["engines"] = {"DataType": "String.Array", "StringValue": engines}
+    logging.info(request.model_dump(exclude_none=True))
+    await __publish(request)
+
+
+async def __publish(request: RequestMessage, engines: list | None = None) -> None:
+    """Publish a typed request to the engines topic; transport only."""
+    body, attrs = to_sns_message(request, engines)
+    logging.info(
+        "Publishing %s request to topic %s (engines: %s)",
+        request.type,
+        sns_topic,
+        engines,
+    )
     try:
         sns.publish(
             TopicArn=sns_topic,
-            Message=json.dumps(envelop),
+            Message=body,
             MessageAttributes=attrs,
         )
     except Exception as e:
-        logging.error("Can't send envelop to request topic", exc_info=e)
+        logging.error("Can't publish request to request topic", exc_info=e)
 
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
-    logging.error(msg="Exception while handling an update:", exc_info=context.error)
+    """Log handler failures.
+
+    PTB logs handler exceptions itself when no error handler is registered and
+    then swallows them, so the Lambda still returns 200; registering this makes
+    the failure explicit in CloudWatch with the traceback attached.
+    """
+    logger.error("Exception while handling an update:", exc_info=context.error)
 
 
 # Lambda message handler
 
 
-def telegram_api_handler(event, context):
-    # asyncio.run() creates a fresh loop per invocation; get_event_loop() raises on
-    # Python >= 3.12 when no loop is current (as in a Lambda handler thread).
-    return asyncio.run(_main(event))
+async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Reply to a command no registered handler owns.
+
+    Registered before the generic text handler so stray /commands never leak
+    into an engine request.
+    """
+    if update.effective_message is None:
+        return
+    await update.effective_message.reply_text(
+        text="Unknown command. Use /help to list available commands."
+    )
 
 
-async def _main(event):
+def register_handlers(app) -> None:
+    """Attach the handler tree exactly once, at import time.
+
+    Registration is off the request path: re-registering on every Lambda
+    invocation would grow the handler list unboundedly on warm containers.
+    Ordering is load-bearing — PTB runs only the first matching handler in a
+    group — so known commands come first, then the translation conversation,
+    the media handlers, the unknown-command catch-all, and finally the generic
+    text handler (which explicitly excludes commands).
+    """
     app.add_handler(CommandHandler("start", start_handler, filters=filters.COMMAND))
     app.add_handler(CommandHandler("reset", reset, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
-            ["llama", "qwen", "gemini"],
-            engines,
+            list(providers.chat_provider_ids()),
+            select_provider,
             filters=filters.COMMAND,
         )
     )
-    app.add_handler(CommandHandler("engines", engines, filters=filters.COMMAND))
     app.add_handler(
         CommandHandler(
             ["creative", "balanced", "precise"], set_style, filters=filters.COMMAND
@@ -652,12 +656,28 @@ async def _main(event):
     app.add_handler(
         MessageHandler(filters=filters.ATTACHMENT, callback=process_attachment)
     )
-    app.add_handler(MessageHandler(filters=filters.ALL, callback=process_message))
+    app.add_handler(MessageHandler(filters=filters.COMMAND, callback=unknown_command))
+    app.add_handler(
+        MessageHandler(
+            filters=filters.TEXT & ~filters.COMMAND, callback=process_message
+        )
+    )
+    # Without this, PTB logs handler failures itself and swallows them.
+    app.add_error_handler(error_handle)
 
+
+register_handlers(app)
+
+
+def telegram_api_handler(event, context):
+    # asyncio.run() creates a fresh loop per invocation; get_event_loop() raises on
+    # Python >= 3.12 when no loop is current (as in a Lambda handler thread).
+    return asyncio.run(_main(event))
+
+
+async def _main(event):
     try:
-        await app.initialize()
-        update = Update.de_json(json.loads(event["body"]), bot)
-        await app.process_update(update)
+        await process_update_event(event, app)
         return {"statusCode": 200, "body": "Success"}
 
     except Exception as ex:

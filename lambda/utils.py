@@ -15,7 +15,6 @@ logging.basicConfig()
 logging.getLogger().setLevel("INFO")
 
 ref_link_pattern = re.compile(r"\[(.*?)\]\:\s?(.*?)\s\"(.*?)\"\n?")
-esc_pattern = re.compile(fr"(?<!\|)([{re.escape(r'.-+#|{}!=()<>')}])(?!\|)")
 
 
 def send_action(action):
@@ -103,10 +102,6 @@ def read_ssm_param(param_name: str):
     return ssm_client.get_parameter(Name=param_name)["Parameter"]["Value"]
 
 
-def escape_markdown_v2(text: str) -> str:
-    return re.sub(pattern=esc_pattern, repl=r"\\\1", string=text)
-
-
 def decode_message(encoded: str) -> str:
     bin = base64.b64decode(encoded.encode("ascii"))
     unzipped = zlib.decompress(bin)
@@ -121,19 +116,3 @@ def recursive_stringify(arr) -> str:
         else:
             result.append(str(item))
     return ", ".join(result) + "\n"
-
-
-def split_long_message(message: str, header: str, max_length: int) -> list:
-    result = []
-    length = len(message)
-    start = 0
-    end = min(max_length, length)
-    count = length // max_length + 1
-    i = 1
-    while start < length:
-        text = f"{header}: {i} of {count}\n{message[start:end]}"
-        result.append(text)
-        start = end
-        end = min(start + max_length, length)
-        i += 1
-    return result

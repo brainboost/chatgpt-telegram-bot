@@ -68,6 +68,9 @@ def main() -> None:
             staging / project,
             ignore=shutil.ignore_patterns(".venv", "__pycache__", "*.pyc", ".pytest_cache"),
         )
+        # The provider catalog is a top-level module shared by both bundles
+        # (import providers) and by CDK synth from the repo root.
+        shutil.copy2(ROOT / "providers.py", staging / "providers.py")
         print(f"[build_bundles] {project} bundle ready at {staging}")
 
 
