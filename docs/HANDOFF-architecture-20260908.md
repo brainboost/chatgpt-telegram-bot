@@ -28,6 +28,7 @@ delete it when the branch is merged or parked if it has served its purpose.
 | `8ad5411` | **prod bugfix** — bind the PTB runtime to each invocation |
 | `319f824` | **prod bugfix** — accept both `ig-cookies.json` shapes (`/imagine`) |
 | `e9838ee` | **prod bugfix (infra)** — Ideogram result handler timeout + queue redrive |
+| `7774ed0` | **prod hardening** — bounded result polling, no credentials on the queue |
 
 ## Artifacts to read instead of re-deriving
 
@@ -136,6 +137,37 @@ Commit `e9838ee`.
   maxReceiveCount will be moved to the DLQ instead of processed, so re-run
   `/imagine` or redrive `Request-Queues-DLQ` manually (the admin `/redrive`
   command only understands SNS-wrapped bodies).
+
+### Polling hardening (same area, same PR)
+
+Commit `7774ed0`.
+
+- **Bounded polling:** the delay chain had no cap. Every "not ready yet" poll
+  posted a brand-new message, so `ReceiveCount` reset to 1 and the redrive policy
+  could never trip — a generation that never completes would poll every 5 s
+  forever. Now `attempt` rides in the payload, the delay grows (5, 5, 10, 10, 15,
+  15, 20 s) and after `MAX_POLLS` = 8 (≈90 s) the user gets a plain "taking
+  longer than expected" reply, published as a **text** result (the images path
+  would otherwise treat the sentence as a photo URL and answer
+  `Error: <sentence>`).
+- **No credentials on the queue:** the message used to carry `payload["headers"]`
+  — session cookie and bearer token — through SQS and, with the new redrive
+  policy, into the DLQ for up to five days. The poller now reads the cookie and
+  token from the bucket itself (`authenticated_headers()`, cached per container),
+  and `BASE_HEADERS` replaces the old mutated global header dict so a Cookie can
+  never linger in shared state.
+- **Cost note (why polling is the right mechanism here):** the wait lives in the
+  SQS delivery delay, not in the process — each poll is one short invocation
+  (~0.7 s × 256 MB), so ~15 polls ≈ **$0.00005** per `/imagine`. The expensive
+  case was the failing/unbounded chain, which is what this bounds.
+- **Testable:** the poll policy is pure (`evaluate_poll`) with injectable I/O and
+  a lazy SQS client, so the whole chain is covered offline.
+- **Deliberately still open:** the result-topic ARN is read from SSM on the first
+  publish per container (~1.5 s). An env var would remove that, but the topic is
+  created in `ChatBotStack`; a dynamic SSM reference would break
+  fresh-environment deploys (EnginesStack deploys first), so the clean fix is
+  moving topic ownership into `EnginesStack` — a stack-topology change worth
+  doing on its own.
 
 ## Deliberate behavior changes (verify on a canary)
 
