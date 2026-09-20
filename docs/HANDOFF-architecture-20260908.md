@@ -26,6 +26,7 @@ delete it when the branch is merged or parked if it has served its purpose.
 | `48d502b` | candidate 5 — provider catalog (`providers.py`) + chat failover chain |
 | `d580b8e` | candidate 6 — PTB handler registration once, off the request path |
 | `8ad5411` | **prod bugfix** — bind the PTB runtime to each invocation |
+| `319f824` | **prod bugfix** — accept both `ig-cookies.json` shapes (`/imagine`) |
 
 ## Artifacts to read instead of re-deriving
 
@@ -41,7 +42,7 @@ delete it when the branch is merged or parked if it has served its purpose.
 
 ## State of the branch
 
-- `uv sync --all-groups` then `uv run pytest tests/` → **63 passed, 5 skipped**
+- `uv sync --all-groups` then `uv run pytest tests/` → **69 passed, 5 skipped**
   (skips are live tests needing AWS credentials + a seeded `google_auth.json`
   in `BOT_S3_BUCKET`).
 - `uvx ruff check` is clean on every file authored/rewritten plus all engine
@@ -80,6 +81,32 @@ Commit `8ad5411`.
 - **Alternative considered:** one long-lived event loop per container
   (`loop.run_until_complete`) avoids the per-invocation `getMe`, but keeps
   runtime state tied to a frozen loop; revisit only if latency shows up.
+
+### Second prod bug: `/imagine` (cookie shape)
+
+Commit `319f824`.
+
+- **Symptom:** `TypeError: list indices must be integers or slices, not str` in
+  `engines/ideogram_img.py` `request_images`; every `/imagine` failed.
+- **Cause:** `ig-cookies.json` has two legitimate shapes — the mapping the
+  engine writes (`{name: value}` from `dict(response.cookies)`) and the browser
+  export a human seeds (a list of cookie objects with `name`/`value`). The
+  seeded file is the export, so `cookies["session_cookie"]` indexed a list.
+- **Fix:** `engines/ideogram_cookies.py` normalizes either shape (junk degrades
+  to "no cookie", which triggers the login refresh); `request_images` reads the
+  session cookie through it. The dead `json_cookies_to_header_string` helper is
+  gone.
+- **Testability:** `ideogram_img` resolved SSM/SQS at import, which is why this
+  never had offline coverage — it now resolves them lazily, so
+  `tests/test_ideogram_img.py` can drive `request_images` through both shapes,
+  the refresh path and the API-error path with AWS/network stubbed. That test
+  fails with the exact prod `TypeError` before the fix.
+- **Also fixed while in there:** the session cookie was being dumped into
+  CloudWatch — `ideogram_img` and `ideogram_result` logged whole payloads that
+  carry the `Cookie` header.
+- **Verified against the real bucket:** with only the Ideogram POST stubbed, the
+  1079-char session cookie reaches the `Cookie` header. The seeded list-shaped
+  file does **not** need to be replaced; both shapes now work.
 
 ## Deliberate behavior changes (verify on a canary)
 
