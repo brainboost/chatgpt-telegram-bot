@@ -14,7 +14,6 @@ from telegram import (
     constants,
 )
 from telegram.ext import (
-    Application,
     CallbackContext,
     CommandHandler,
     ContextTypes,
@@ -35,6 +34,7 @@ from .request_message import (
     TranslateRequest,
     to_sns_message,
 )
+from .runtime import create_application, process_update_event
 from .user_config import UserConfig
 from .utils import (
     generate_transcription,
@@ -59,14 +59,7 @@ sns = boto3.session.Session().client("sns")
 telegram_token = read_ssm_param(param_name="TELEGRAM_TOKEN")
 sns_topic = read_ssm_param(param_name="REQUESTS_SNS_TOPIC_ARN")
 admins = [read_ssm_param(param_name="TELEGRAM_BOT_ADMINS")]
-app = (
-    Application.builder()
-    .token(token=telegram_token)
-    .concurrent_updates(True)
-    .http_version("1.1")
-    .get_updates_http_version("1.1")
-    .build()
-)
+app = create_application(telegram_token)
 bot = app.bot
 logging.info("application startup")
 logging.info(f"admins:{admins}")
@@ -212,11 +205,10 @@ async def grab_errors(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         logging.info(f"{results}")
         if length == 0:
             results = ["No error messages found"]
-        else:
-            text = recursive_stringify(results)
-            parts = assemble_plain_reply(text, "logs")
-            for part in parts:
-                await update.effective_message.reply_text(text=part)
+        text = recursive_stringify(results)
+        parts = assemble_plain_reply(text, "logs")
+        for part in parts:
+            await update.effective_message.reply_text(text=part)
     except Exception as e:
         logging.error(e)
         await update.effective_message.reply_text(
@@ -589,7 +581,13 @@ async def __publish(request: RequestMessage, engines: list | None = None) -> Non
 
 
 async def error_handle(update: Update, context: CallbackContext) -> None:
-    logging.error(msg="Exception while handling an update:", exc_info=context.error)
+    """Log handler failures.
+
+    PTB logs handler exceptions itself when no error handler is registered and
+    then swallows them, so the Lambda still returns 200; registering this makes
+    the failure explicit in CloudWatch with the traceback attached.
+    """
+    logger.error("Exception while handling an update:", exc_info=context.error)
 
 
 # Lambda message handler
@@ -664,6 +662,8 @@ def register_handlers(app) -> None:
             filters=filters.TEXT & ~filters.COMMAND, callback=process_message
         )
     )
+    # Without this, PTB logs handler failures itself and swallows them.
+    app.add_error_handler(error_handle)
 
 
 register_handlers(app)
@@ -677,9 +677,7 @@ def telegram_api_handler(event, context):
 
 async def _main(event):
     try:
-        await app.initialize()
-        update = Update.de_json(json.loads(event["body"]), bot)
-        await app.process_update(update)
+        await process_update_event(event, app)
         return {"statusCode": 200, "body": "Success"}
 
     except Exception as ex:
