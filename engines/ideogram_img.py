@@ -14,6 +14,7 @@ from .common_utils import (
     save_to_s3,
 )
 from .ideogram_cookies import cookie_header, session_cookie
+from .ideogram_request import IdeogramImageRequest
 
 logging.basicConfig()
 logging.getLogger().setLevel("INFO")
@@ -152,16 +153,7 @@ def check_and_refresh_auth_tokens() -> dict:
 
 
 def request_images(prompt: str) -> str:
-    payload = {
-        "aspect_ratio": "1:1",
-        "model_version": "V_1_5",
-        "use_autoprompt_option": "ON",
-        "prompt": prompt,
-        "sampling_speed": 0,
-        "style_expert": "AUTO",
-        "resolution": {"width": 1024, "height": 1024},
-        "user_id": _user_id(),
-    }
+    payload = IdeogramImageRequest(prompt=prompt, user_id=_user_id()).to_payload()
     logger.info(payload)
     tokens = check_and_refresh_auth_tokens()
     try:

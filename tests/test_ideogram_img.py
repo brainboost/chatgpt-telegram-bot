@@ -9,6 +9,7 @@ and the network stubbed out.
 """
 
 import importlib
+import json
 import types
 
 import jwt
@@ -148,6 +149,30 @@ def test_request_images_refreshes_when_cookie_file_is_missing(engine, monkeypatc
 
     assert engine.request_images(prompt="a cat") == REQUEST_ID
     assert sent["headers"]["Cookie"] == f"session_cookie={refreshed['session_cookie']}"
+
+
+def test_request_images_posts_the_captured_payload_shape(engine, monkeypatch):
+    """The engine sends the payload shape ideogram.ai itself uses today."""
+    monkeypatch.setattr(
+        img, "read_json_from_s3", lambda bucket_name, file_name: _browser_export(_jwt())
+    )
+    sent: dict = {}
+    _capture_post(monkeypatch, sent)
+
+    assert engine.request_images(prompt="a cat") == REQUEST_ID
+    body = json.loads(sent["data"])
+    assert body["prompt"] == "a cat"
+    assert body["user_id"] == "test-user"
+    assert body["model_version"] == "AUTO"
+    assert body["model_uri"] == "model/AUTO/version/0"
+    assert body["use_autoprompt_option"] == "AUTO"
+    assert body["sampling_speed"] == 2
+    assert body["style_type"] == "AUTO"
+    assert body["num_images"] == 4
+    assert body["resolution"] == {"width": 1280, "height": 800}
+    # fields from the old hand-built payload are gone
+    assert "style_expert" not in body
+    assert "aspect_ratio" not in body
 
 
 def test_request_images_raises_on_api_error(engine, monkeypatch):

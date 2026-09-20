@@ -42,7 +42,7 @@ delete it when the branch is merged or parked if it has served its purpose.
 
 ## State of the branch
 
-- `uv sync --all-groups` then `uv run pytest tests/` → **69 passed, 5 skipped**
+- `uv sync --all-groups` then `uv run pytest tests/` → **82 passed, 5 skipped**
   (skips are live tests needing AWS credentials + a seeded `google_auth.json`
   in `BOT_S3_BUCKET`).
 - `uvx ruff check` is clean on every file authored/rewritten plus all engine
@@ -132,6 +132,14 @@ Approved in-session; not regressions:
    falling through to an engine request.
 9. `/engines`-era stored configs holding several ids keep working: only the
    first id is used as the chain start.
+10. `/imagine` now sends the payload shape Ideogram's own web client uses:
+    `model_version: "AUTO"` with a derived `model_uri`,
+    `use_autoprompt_option: "AUTO"`, `sampling_speed: 2`, `style_type` (renamed
+    from `style_expert`), 1280×800, and `num_images: 4` — one prompt therefore
+    returns **four images**. The payload lives in
+    `engines/ideogram_request.py` (plain dataclass; the engines bundle carries no
+    pydantic) and the wire contract is pinned by a test built from a real
+    captured request.
 
 ## Suggested next session focus — E2E/canary verification
 
