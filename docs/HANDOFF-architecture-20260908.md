@@ -27,6 +27,8 @@ delete it when the branch is merged or parked if it has served its purpose.
 | `d580b8e` | candidate 6 — PTB handler registration once, off the request path |
 | `8ad5411` | **prod bugfix** — bind the PTB runtime to each invocation |
 | `319f824` | **prod bugfix** — accept both `ig-cookies.json` shapes (`/imagine`) |
+| `e9838ee` | **prod bugfix (infra)** — Ideogram result handler timeout + queue redrive |
+| `7774ed0` | **prod hardening** — bounded result polling, no credentials on the queue |
 
 ## Artifacts to read instead of re-deriving
 
@@ -107,6 +109,65 @@ Commit `319f824`.
 - **Verified against the real bucket:** with only the Ideogram POST stubbed, the
   1079-char session cookie reaches the `Cookie` header. The seeded list-shaped
   file does **not** need to be replaced; both shapes now work.
+
+### Third prod bug: `/imagine` result handler timeout (infrastructure)
+
+Commit `e9838ee`.
+
+- **Symptom:** images were generated (visible in the Ideogram dashboard) but
+  nothing reached Telegram; CloudWatch showed `IdeogramResultHandler` ending in
+  `Status: timeout` at 3000 ms, repeatedly, and one message stuck in flight on
+  `Ideogram-Result-Queue`.
+- **Cause:** the result handler is created inline in `stacks/engines_stack.py`
+  rather than through `__create_engine`, so it inherited Lambda's **3-second /
+  128 MB** defaults while every other worker runs 300 s / 256 MB. A
+  "not ready yet" poll fits in 3 s, but the invocation that finally has URLs does
+  not (Ideogram call ~0.8 s, `RESULT_SNS_TOPIC_ARN` SSM read ~1.6 s, SNS client,
+  publish), so it was killed mid-publish: `ResultProcessingHandler` (the Telegram
+  sender) had not run since 17:16 UTC, and the message was redelivered every 5 s.
+- **Fix:** `__worker_defaults()` extracted so no worker can silently miss a
+  timeout; the result handler runs 60 s / 256 MB; queue visibility raised 5 s →
+  360 s (6× the timeout); redrive policy added (maxReceiveCount 5 →
+  `Request-Queues-DLQ`) so a poison message stops looping and trips the existing
+  alarm.
+- **Validated** by synthesizing `EnginesStack` with `aws-cdk-lib` (the `cdk` CLI
+  is not installed here): the template carries Timeout 60 / MemorySize 256,
+  VisibilityTimeout 360 and the RedrivePolicy, and other workers are unchanged.
+- **Deploy:** needs `cdk deploy EnginesStack`. A message already over
+  maxReceiveCount will be moved to the DLQ instead of processed, so re-run
+  `/imagine` or redrive `Request-Queues-DLQ` manually (the admin `/redrive`
+  command only understands SNS-wrapped bodies).
+
+### Polling hardening (same area, same PR)
+
+Commit `7774ed0`.
+
+- **Bounded polling:** the delay chain had no cap. Every "not ready yet" poll
+  posted a brand-new message, so `ReceiveCount` reset to 1 and the redrive policy
+  could never trip — a generation that never completes would poll every 5 s
+  forever. Now `attempt` rides in the payload, the delay grows (5, 5, 10, 10, 15,
+  15, 20 s) and after `MAX_POLLS` = 8 (≈90 s) the user gets a plain "taking
+  longer than expected" reply, published as a **text** result (the images path
+  would otherwise treat the sentence as a photo URL and answer
+  `Error: <sentence>`).
+- **No credentials on the queue:** the message used to carry `payload["headers"]`
+  — session cookie and bearer token — through SQS and, with the new redrive
+  policy, into the DLQ for up to five days. The poller now reads the cookie and
+  token from the bucket itself (`authenticated_headers()`, cached per container),
+  and `BASE_HEADERS` replaces the old mutated global header dict so a Cookie can
+  never linger in shared state.
+- **Cost note (why polling is the right mechanism here):** the wait lives in the
+  SQS delivery delay, not in the process — each poll is one short invocation
+  (~0.7 s × 256 MB), so ~15 polls ≈ **$0.00005** per `/imagine`. The expensive
+  case was the failing/unbounded chain, which is what this bounds.
+- **Testable:** the poll policy is pure (`evaluate_poll`) with injectable I/O and
+  a lazy SQS client, so the whole chain is covered offline.
+- **Deliberately still open:** the result-topic ARN is read from SSM on the first
+  publish per container (~1.5 s). An env var would remove that, but the topic is
+  created in `ChatBotStack`; a dynamic SSM reference would break
+  fresh-environment deploys (EnginesStack deploys first), so the clean fix is
+  moving topic ownership into `EnginesStack` — a stack-topology change worth
+  doing on its own.
 
 ## Deliberate behavior changes (verify on a canary)
 

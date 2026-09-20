@@ -77,7 +77,7 @@ def engine(monkeypatch):
     """The engine with AWS, queue lookup and token refresh stubbed out."""
     monkeypatch.setattr(img, "_bucket_name", "test-bucket")
     monkeypatch.setattr(img, "_ideogram_user", "test-user")
-    monkeypatch.setattr(img, "headers", dict(img.headers))
+    monkeypatch.setattr(img, "_auth_headers", None)
     monkeypatch.setattr(
         img, "check_and_refresh_auth_tokens", lambda: {"access_token": ACCESS_TOKEN}
     )
@@ -199,3 +199,44 @@ def test_cookie_normalization_handles_junk():
     assert cookies_mod.cookie_mapping([{"name": "a"}, "b", 3]) == {}
     assert cookies_mod.session_cookie([]) is None
     assert cookies_mod.cookie_header([]) == ""
+
+
+def test_auth_headers_come_from_the_bucket_and_are_cached(engine, monkeypatch):
+    session = _jwt()
+    reads = []
+
+    def read(bucket_name, file_name):
+        reads.append(file_name)
+        return _browser_export(session)
+
+    monkeypatch.setattr(img, "read_json_from_s3", read)
+    monkeypatch.setattr(img, "_auth_headers", None)
+
+    headers = engine.authenticated_headers()
+
+    assert headers["Cookie"] == f"session_cookie={session}"
+    assert headers["Authorization"] == f"Bearer {ACCESS_TOKEN}"
+    assert engine.authenticated_headers() is headers  # cached per container
+    assert reads == ["ig-cookies.json"]
+
+
+def test_auth_headers_require_a_session_cookie(engine, monkeypatch):
+    monkeypatch.setattr(img, "read_json_from_s3", lambda bucket_name, file_name: [])
+    monkeypatch.setattr(img, "_auth_headers", None)
+
+    with pytest.raises(img.IdeogramImageError, match="No session cookie"):
+        engine.authenticated_headers()
+
+
+def test_request_images_keeps_credentials_out_of_shared_headers(engine, monkeypatch):
+    monkeypatch.setattr(
+        img, "read_json_from_s3", lambda bucket_name, file_name: _browser_export(_jwt())
+    )
+    sent: dict = {}
+    _capture_post(monkeypatch, sent)
+
+    engine.request_images(prompt="a cat")
+
+    assert "Cookie" in sent["headers"]  # the call itself is authenticated
+    assert "Cookie" not in img.BASE_HEADERS  # ...but the shared dict stays clean
+    assert "Authorization" not in img.BASE_HEADERS
