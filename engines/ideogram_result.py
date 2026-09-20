@@ -25,7 +25,8 @@ class IdeogramError(Exception):
 
 
 def retrieve_images(payload: dict) -> str | None:
-    logger.info(payload)
+    # Never log the whole payload: it carries the session cookie in its headers.
+    logger.info("Retrieving images (result_id=%s)", payload.get("result_id"))
     result_id = payload["result_id"]
     if not result_id:
         raise IdeogramError("Cannot get result_id")
