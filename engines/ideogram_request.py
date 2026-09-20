@@ -11,12 +11,15 @@ Captured from ideogram.ai's own call to ``/api/images/sample`` (2026-09):
 The engine builds its payload from this instead of a hand-written dict, so the
 wire shape lives in one place and nonsense values fail here rather than at the
 API. It is a plain dataclass on purpose: the engines bundle carries no pydantic.
+
+One deliberate deviation from the capture: the default resolution stays square
+1024x1024 (the captured request asked for 1280x800 landscape).
 """
 
 from dataclasses import dataclass, field
 
-DEFAULT_WIDTH = 1280
-DEFAULT_HEIGHT = 800
+DEFAULT_WIDTH = 1024
+DEFAULT_HEIGHT = 1024
 DEFAULT_NUM_IMAGES = 4
 MIN_SAMPLING_SPEED = 0
 MAX_SAMPLING_SPEED = 3

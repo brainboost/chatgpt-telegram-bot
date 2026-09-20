@@ -26,13 +26,20 @@ CAPTURED_PAYLOAD = {
     "style_type": "AUTO",
 }
 
+# The capture asked for 1280x800 landscape; the engine deliberately sends a
+# square 1024x1024 instead. Everything else matches the capture.
+EXPECTED_DEFAULT_PAYLOAD = {
+    **CAPTURED_PAYLOAD,
+    "resolution": {"width": 1024, "height": 1024},
+}
 
-def test_defaults_match_the_captured_payload():
+
+def test_defaults_match_the_captured_payload_but_stay_square():
     request = IdeogramImageRequest(
         prompt=CAPTURED_PAYLOAD["prompt"], user_id=CAPTURED_PAYLOAD["user_id"]
     )
 
-    assert request.to_payload() == CAPTURED_PAYLOAD
+    assert request.to_payload() == EXPECTED_DEFAULT_PAYLOAD
 
 
 def test_model_uri_follows_the_model_version():

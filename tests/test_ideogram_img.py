@@ -169,7 +169,7 @@ def test_request_images_posts_the_captured_payload_shape(engine, monkeypatch):
     assert body["sampling_speed"] == 2
     assert body["style_type"] == "AUTO"
     assert body["num_images"] == 4
-    assert body["resolution"] == {"width": 1280, "height": 800}
+    assert body["resolution"] == {"width": 1024, "height": 1024}
     # fields from the old hand-built payload are gone
     assert "style_expert" not in body
     assert "aspect_ratio" not in body

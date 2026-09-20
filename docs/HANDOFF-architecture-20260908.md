@@ -135,8 +135,9 @@ Approved in-session; not regressions:
 10. `/imagine` now sends the payload shape Ideogram's own web client uses:
     `model_version: "AUTO"` with a derived `model_uri`,
     `use_autoprompt_option: "AUTO"`, `sampling_speed: 2`, `style_type` (renamed
-    from `style_expert`), 1280×800, and `num_images: 4` — one prompt therefore
-    returns **four images**. The payload lives in
+    from `style_expert`), and `num_images: 4` — one prompt therefore returns
+    **four images**. Resolution deliberately stays square 1024×1024 (the
+    captured request used 1280×800 landscape). The payload lives in
     `engines/ideogram_request.py` (plain dataclass; the engines bundle carries no
     pydantic) and the wire contract is pinned by a test built from a real
     captured request.
