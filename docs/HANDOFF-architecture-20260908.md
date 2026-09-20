@@ -27,6 +27,7 @@ delete it when the branch is merged or parked if it has served its purpose.
 | `d580b8e` | candidate 6 — PTB handler registration once, off the request path |
 | `8ad5411` | **prod bugfix** — bind the PTB runtime to each invocation |
 | `319f824` | **prod bugfix** — accept both `ig-cookies.json` shapes (`/imagine`) |
+| `e9838ee` | **prod bugfix (infra)** — Ideogram result handler timeout + queue redrive |
 
 ## Artifacts to read instead of re-deriving
 
@@ -107,6 +108,34 @@ Commit `319f824`.
 - **Verified against the real bucket:** with only the Ideogram POST stubbed, the
   1079-char session cookie reaches the `Cookie` header. The seeded list-shaped
   file does **not** need to be replaced; both shapes now work.
+
+### Third prod bug: `/imagine` result handler timeout (infrastructure)
+
+Commit `e9838ee`.
+
+- **Symptom:** images were generated (visible in the Ideogram dashboard) but
+  nothing reached Telegram; CloudWatch showed `IdeogramResultHandler` ending in
+  `Status: timeout` at 3000 ms, repeatedly, and one message stuck in flight on
+  `Ideogram-Result-Queue`.
+- **Cause:** the result handler is created inline in `stacks/engines_stack.py`
+  rather than through `__create_engine`, so it inherited Lambda's **3-second /
+  128 MB** defaults while every other worker runs 300 s / 256 MB. A
+  "not ready yet" poll fits in 3 s, but the invocation that finally has URLs does
+  not (Ideogram call ~0.8 s, `RESULT_SNS_TOPIC_ARN` SSM read ~1.6 s, SNS client,
+  publish), so it was killed mid-publish: `ResultProcessingHandler` (the Telegram
+  sender) had not run since 17:16 UTC, and the message was redelivered every 5 s.
+- **Fix:** `__worker_defaults()` extracted so no worker can silently miss a
+  timeout; the result handler runs 60 s / 256 MB; queue visibility raised 5 s →
+  360 s (6× the timeout); redrive policy added (maxReceiveCount 5 →
+  `Request-Queues-DLQ`) so a poison message stops looping and trips the existing
+  alarm.
+- **Validated** by synthesizing `EnginesStack` with `aws-cdk-lib` (the `cdk` CLI
+  is not installed here): the template carries Timeout 60 / MemorySize 256,
+  VisibilityTimeout 360 and the RedrivePolicy, and other workers are unchanged.
+- **Deploy:** needs `cdk deploy EnginesStack`. A message already over
+  maxReceiveCount will be moved to the DLQ instead of processed, so re-run
+  `/imagine` or redrive `Request-Queues-DLQ` manually (the admin `/redrive`
+  command only understands SNS-wrapped bodies).
 
 ## Deliberate behavior changes (verify on a canary)
 
