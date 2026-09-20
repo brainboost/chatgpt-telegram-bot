@@ -29,7 +29,9 @@ tokens_file = "google_auth.json"
 post_task_url = f"{base_url}/api/images/sample"
 result_queue_name = "Ideogram-Result-Queue"
 
-headers = {
+# Static request headers. Credentials are never added here: the dict is shared
+# by every call, and a Cookie left in it would leak into logs and queue payloads.
+BASE_HEADERS = {
     "Origin": base_url,
     "Referer": base_url + "/",
     "DNT": "1",
@@ -46,6 +48,7 @@ headers = {
 _bucket_name: str | None = None
 _ideogram_user: str | None = None
 _result_queue_url: str | None = None
+_auth_headers: dict | None = None
 _sqs = None
 
 
@@ -121,10 +124,10 @@ def refresh_iss_tokens(refresh_token: str) -> dict:
 
 def get_session_cookies(iss_token: str) -> dict:
     request_url = f"{base_url}/api/account/login"
-    headers["Authorization"] = f"Bearer {iss_token}"
+    login_headers = {**BASE_HEADERS, "Authorization": f"Bearer {iss_token}"}
     response_obj = requests.post(
         url=request_url,
-        headers=headers,
+        headers=login_headers,
         data=json.dumps({}),
         auth=("Bearer", iss_token),
     )
@@ -152,6 +155,37 @@ def check_and_refresh_auth_tokens() -> dict:
     return tokens
 
 
+def authenticated_headers() -> dict:
+    """Base headers plus cookies and bearer token, read from the bucket.
+
+    Used by the result poller, which deliberately receives no credentials on its
+    queue message. Cached per container: polls arrive seconds apart on the same
+    warm sandbox, so the S3 reads and any token refresh happen once.
+    """
+    global _auth_headers
+    if _auth_headers is None:
+        cookie = cookie_header(
+            read_json_from_s3(bucket_name=_bucket(), file_name=ig_cookies)
+        )
+        if not cookie:
+            raise IdeogramImageError(
+                f"No session cookie in '{ig_cookies}' (bucket {_bucket()}); "
+                "cannot call the Ideogram API"
+            )
+        result = {**BASE_HEADERS, "Cookie": cookie}
+        try:
+            token = check_and_refresh_auth_tokens().get("access_token")
+        except (BotoCoreError, ClientError, IdeogramImageError) as e:
+            # The cookie alone usually suffices; a missing token must not stop
+            # the poll.
+            logger.warning("No access token for Ideogram API calls", exc_info=e)
+            token = None
+        if token:
+            result["Authorization"] = f"Bearer {token}"
+        _auth_headers = result
+    return _auth_headers
+
+
 def request_images(prompt: str) -> str:
     payload = IdeogramImageRequest(prompt=prompt, user_id=_user_id()).to_payload()
     logger.info(payload)
@@ -168,11 +202,14 @@ def request_images(prompt: str) -> str:
     cookie = session_cookie(cookies)
     if not cookie or is_expired(cookie):
         cookies = get_session_cookies(iss_token=tokens["access_token"])
-    headers["Cookie"] = cookie_header(cookies)
-    headers["Authorization"] = f"Bearer {tokens['access_token']}"
+    request_headers = {
+        **BASE_HEADERS,
+        "Cookie": cookie_header(cookies),
+        "Authorization": f"Bearer {tokens['access_token']}",
+    }
     response = requests.post(
         url=post_task_url,
-        headers=headers,
+        headers=request_headers,
         data=json.dumps(payload),
         impersonate=browser_version,
     )
@@ -188,7 +225,6 @@ def request_images(prompt: str) -> str:
 
 
 def send_retrieving_event(event: dict) -> None:
-    # Never log the whole event: it carries the session cookie in its headers.
     logger.info("Queueing result retrieval (result_id=%s)", event.get("result_id"))
     body = json.dumps(event)
     _sqs.send_message(QueueUrl=_result_queue(), MessageBody=body)
@@ -201,7 +237,7 @@ def __process_payload(payload: Any, request_id: str) -> None:
 
     result_id = request_images(prompt=prompt)
     payload["result_id"] = result_id
-    payload["headers"] = headers
+    # No credentials on the wire: the poller reads the session cookie itself.
     payload["queue_url"] = _result_queue()
     send_retrieving_event(payload)
 
