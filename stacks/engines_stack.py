@@ -18,6 +18,13 @@ from constructs import Construct
 
 ASSET_PATH = "engines"
 
+# Worker Lambda runtime defaults: a worker created without an explicit timeout
+# silently inherits Lambda's 3-second default, which is how the Ideogram result
+# handler ended up unable to finish a poll-and-publish invocation.
+WORKER_TIMEOUT = Duration.minutes(5)
+RESULT_HANDLER_TIMEOUT = Duration.minutes(1)
+WORKER_MEMORY_MB = 256
+
 
 def engines_bundle_dir() -> str:
     """Staging dir produced by scripts/build_bundles.py (code + deps, no Docker)."""
@@ -217,10 +224,19 @@ class EnginesStack(Stack):
             "Ideogram-Result-Queue",
             queue_name="Ideogram-Result-Queue",
             removal_policy=RemovalPolicy.DESTROY,
-            visibility_timeout=Duration.seconds(5),
+            # Must exceed the result handler's timeout (1 minute): with the old
+            # 5s the message became visible mid-invocation and was processed
+            # concurrently. 6x the timeout is the usual SQS/Lambda guidance.
+            visibility_timeout=Duration.seconds(360),
             delivery_delay=Duration.seconds(5),
             encryption=aws_sqs.QueueEncryption.SQS_MANAGED,
             enforce_ssl=True,
+            # Without a redrive policy a poison message (e.g. Ideogram down) is
+            # retried forever instead of surfacing in the DLQ + alarm.
+            dead_letter_queue=aws_sqs.DeadLetterQueue(
+                max_receive_count=5,
+                queue=self.dlq,
+            ),
         )
         # Create log group for ideogram result handler
         ideogram_result_log_group = aws_logs.LogGroup(
@@ -239,9 +255,9 @@ class EnginesStack(Stack):
             code=_lambda.Code.from_asset(engines_bundle_dir()),
             handler=f"{ASSET_PATH}.ideogram_result.sqs_handler",
             log_group=ideogram_result_log_group,
-            role=self.lambda_role,
-            dead_letter_queue_enabled=True,
-            dead_letter_queue=self.dlq,
+            # One minute is ample for a single poll + publish; 5 minutes (the
+            # other workers) would just delay poison-message detection.
+            **self.__worker_defaults(timeout=RESULT_HANDLER_TIMEOUT),
         )
         resultHandler.add_event_source(
             aws_lambda_event_sources.SqsEventSource(resultQueue)
@@ -271,23 +287,32 @@ class EnginesStack(Stack):
             log_group=gemini_log_group,
         )
 
+    def __worker_defaults(self, *, timeout: Duration = WORKER_TIMEOUT) -> dict:
+        """Runtime config every worker Lambda in this stack shares.
+
+        Kept in one place so no worker can silently inherit Lambda's defaults.
+        """
+        return {
+            "timeout": timeout,
+            "memory_size": WORKER_MEMORY_MB,
+            "role": self.lambda_role,
+            "dead_letter_queue_enabled": True,
+            "dead_letter_queue": self.dlq,
+        }
+
     def __create_engine(
         self,
         engine_name: str,
         sns_filter_policy: any,
         handler: str,
         log_group: aws_logs.LogGroup,
-        environment: dict = None,
+        environment: dict | None = None,
     ) -> None:
         """Creates infrastructure for the AI engine handler (queue-lambda-alarm)."""
 
         lambda_config = {
-            "timeout": Duration.minutes(5),
-            "memory_size": 256,
             "log_group": log_group,
-            "role": self.lambda_role,
-            "dead_letter_queue_enabled": True,
-            "dead_letter_queue": self.dlq,
+            **self.__worker_defaults(),
         }
         if environment:
             lambda_config["environment"] = environment
