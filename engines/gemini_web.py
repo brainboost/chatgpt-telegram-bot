@@ -553,11 +553,19 @@ class GeminiWebClient:
             return self._turn(text, state)
 
     def _token_fingerprint(self) -> tuple:
+        """What a retry would actually resend, ignoring values that always change.
+
+        ``f.sid`` is generated fresh on every page load, so including it here
+        would make each re-scrape look like a change and the guard could never
+        fire — least of all in the common case where the page does not expose
+        ``at`` at all, which is precisely when resending repeats a dead request.
+        ``bl`` is kept: it only changes on Google's deploys, so a new value is a
+        real reason to retry.
+        """
         tokens = self._tokens
         return (
             self._access_token(),
             tokens.build_label if tokens else None,
-            tokens.session_id if tokens else None,
         )
 
     def _turn(self, text: str, state: ConversationState | None) -> TurnResult:

@@ -493,6 +493,64 @@ def test_an_unchanged_rescrape_is_not_resent():
     assert session.posts == 1
 
 
+def test_a_rescrape_that_only_moved_f_sid_is_not_resent():
+    """`f.sid` is new on every page load, so it is not evidence of a change.
+
+    Most loads do not expose `at` at all; resending the same cached token with a
+    fresh `f.sid` would repeat the rejected request for nothing.
+    """
+    session = FakeSession(FakeResponse("", status_code=400))
+    loads = []
+
+    def token_fetcher(_session):
+        loads.append(1)
+        return BootstrapTokens(build_label="bl", session_id=f"sid-{len(loads)}")
+
+    client = GeminiWebClient(
+        credentials=GeminiCredentials(
+            cookies={"__Secure-1PSID": "psid"}, access_token="cached-at"
+        ),
+        session=session,
+        token_fetcher=token_fetcher,
+        token_saver=lambda _token: False,
+    )
+
+    with pytest.raises(CredentialsRejectedError):
+        client.ask("hello")
+
+    assert loads == [1, 1]  # it did re-scrape once...
+    assert session.posts == 1  # ...but did not resend the same credentials
+
+
+def test_a_rescrape_that_yields_a_token_does_resend():
+    """A genuinely new `at` is the case the retry exists for."""
+    session = SequencedSession(
+        [
+            FakeResponse("", status_code=400),
+            FakeResponse(framed(result_frame("recovered", context="ctx"))),
+        ]
+    )
+    loads = []
+
+    def token_fetcher(_session):
+        loads.append(1)
+        if len(loads) == 1:
+            return BootstrapTokens(build_label="bl", session_id="sid-1")
+        return BootstrapTokens(access_token="fresh-at", build_label="bl")
+
+    client = GeminiWebClient(
+        credentials=GeminiCredentials(
+            cookies={"__Secure-1PSID": "psid"}, access_token="cached-at"
+        ),
+        session=session,
+        token_fetcher=token_fetcher,
+        token_saver=lambda _token: False,
+    )
+
+    assert client.ask("hello").text == "recovered"
+    assert session.posts == 2
+
+
 def test_a_recovered_request_succeeds_after_the_rescrape():
     session = SequencedSession(
         [FakeResponse("", status_code=400), FakeResponse(framed(result_frame("ok", context="ctx")))]
