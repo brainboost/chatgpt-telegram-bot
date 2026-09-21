@@ -155,10 +155,11 @@ parse line-wise and skip anything that is not a JSON array.
 | `inner[4][0][1][0]` | **the answer text** (arrives as growing deltas) |
 | `inner[4][0][8][0]` | `1` in progress, `2` complete |
 | `inner[25]` | conversation context token |
-| `inner[2]["26"]` | the same field delivered sparsely (see below) |
 
 JSPB delivers high-numbered fields sparsely, in a dict keyed by **field number + 1**,
-so field 25 shows up as metadata key `"26"` instead of positionally.
+so field 25 can also arrive as metadata key `"26"` rather than positionally. The
+engine reads only the positional slot: continuity works with an empty context
+(verified live), so chasing the sparse form buys fidelity a Telegram bot cannot use.
 
 Other frame tags — `di`, `af.httprm`, `e` — are bookkeeping. They also appear in
 successful streams, so a tag alone means nothing; the trailing number on

@@ -12,6 +12,7 @@ import pytest
 from engines.gemini_auth import BootstrapTokens, GeminiCredentials
 from engines.gemini_web import (
     DEFAULT_MODEL_ID,
+    DEFAULT_MODEL_NUMBER,
     MODEL_HEADER_KEY,
     REQUEST_UUID_HEADER,
     STREAM_URL,
@@ -97,12 +98,11 @@ def test_deep_research_slot_stays_unset():
 
 
 def test_payload_carries_the_model_number_and_thinking_level():
-    inner = inner_of(
-        build_payload("hi", ConversationState(), model_number=3, extended_thinking=False)
-    )
+    inner = inner_of(build_payload("hi", ConversationState()))
 
-    assert inner[79] == 3
-    assert inner[80] == 1
+    assert inner[79] == DEFAULT_MODEL_NUMBER
+    assert inner[80] == 2  # extended thinking on
+    assert inner[4] is None  # Deep Research uuid stays unset
 
 
 def test_request_uuid_is_mirrored_into_the_body():
@@ -220,30 +220,6 @@ def test_annotations_are_stripped_on_accumulated_text():
     assert parse_stream(raw).text == "Real answer."
 
 
-def test_continuation_token_is_read_from_the_sparse_metadata_bundle():
-    """Newer responses put it in the sparse bundle instead of slot 25."""
-    inner: list = [None] * 26
-    inner[1] = ["c_1", "r_2"]
-    inner[2] = {"26": "sparse-token", "44": True}
-    inner[4] = [["rc_3", ["hi"], None, None, None, None, None, None, [2]]]
-
-    result = parse_stream(framed([["wrb.fr", None, json.dumps(inner)]]))
-
-    assert result.state.context == "sparse-token"
-
-
-def test_slot_25_wins_over_the_sparse_bundle():
-    inner: list = [None] * 26
-    inner[1] = ["c_1", "r_2"]
-    inner[2] = {"26": "sparse-token"}
-    inner[4] = [["rc_3", ["hi"], None, None, None, None, None, None, [2]]]
-    inner[25] = "slot-token"
-
-    result = parse_stream(framed([["wrb.fr", None, json.dumps(inner)]]))
-
-    assert result.state.context == "slot-token"
-
-
 def test_conversation_state_roundtrips_through_a_dict():
     state = ConversationState(cid="c_1", rid="r_2", rcid="rc_3", context="ctx")
 
@@ -253,13 +229,6 @@ def test_conversation_state_roundtrips_through_a_dict():
 def test_a_new_conversation_persists_as_an_empty_dict():
     assert ConversationState().to_dict() == {}
     assert ConversationState.from_dict(None) == ConversationState()
-    assert ConversationState.from_metadata(None) == ConversationState()
-
-
-def test_metadata_roundtrips_through_the_wire_shape():
-    state = ConversationState(cid="c_1", rid="r_2", rcid="rc_3", context="ctx")
-
-    assert ConversationState.from_metadata(state.to_metadata()) == state
 
 
 def test_generate_request_carries_tokens_params_and_headers():
@@ -413,21 +382,6 @@ def test_client_increments_reqid_between_turns():
     second = int(session.posted["params"]["_reqid"])
 
     assert second - first == 100_000
-
-
-def test_client_loads_credentials_and_session_lazily():
-    session = FakeSession(FakeResponse(framed(result_frame("ok", context="ctx"))))
-    client = GeminiWebClient(
-        credential_loader=lambda: GeminiCredentials(
-            cookies={"__Secure-1PSID": "psid"}, access_token="cached"
-        ),
-        session_factory=lambda _credentials: session,
-        token_fetcher=lambda _session: BootstrapTokens(),
-        token_saver=lambda _token: False,
-    )
-
-    assert client.ask("hello").text == "ok"
-    assert session.posted["data"]["at"] == "cached"
 
 
 def test_accept_language_header_is_well_formed():

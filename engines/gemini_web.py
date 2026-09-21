@@ -10,11 +10,17 @@ Shape of one turn:
 1. ``GET /app`` yields the page globals (``at`` token, ``bl`` build label,
    ``f.sid`` session id) — see :mod:`engines.gemini_auth`.
 2. ``POST .../StreamGenerate?bl=..&f.sid=..&hl=..&_reqid=..&rt=c`` with a form body
-   ``f.req=<json>[&at=<token>]``. ``f.req`` is a two-element array whose second
+   ``at=<token>&f.req=<json>``. ``f.req`` is a two-element array whose second
    element is a JSON *string* holding an 81-slot payload list.
-3. The response is chunked: ``)]}'``, then repeated ``<length>`` / ``<json>`` line
-   pairs. Each JSON value is an array of frames; a result frame is
+3. The response is chunked: ``)]}'`` then repeated length/JSON line pairs. Each
+   JSON value is an array of frames; a result frame is
    ``["wrb.fr", rpcid, "<inner json string>", ...]``.
+
+Only what a Telegram bot needs is modelled here. The web app's own affordances —
+deep research, Gems, temporary chats, uploads, image generation, citations,
+thinking blocks, suggested follow-up questions — are deliberately ignored: the
+payload slots that drive them stay unset, and the answer text is taken as plain
+text.
 
 Conversation history lives on Google's side, so a follow-up turn is identical to
 a first turn except for payload slot 2, which carries ``[cid, rid, rcid, ...,
@@ -67,6 +73,7 @@ DEFAULT_MODEL_ID = "fbb127bbb056c959"
 DEFAULT_MODEL_NUMBER = 1  # 1 = Flash, 3 = Pro, 6 = Lite
 FREE_CAPACITY = 1
 CAPABILITIES = [4, 5, 6, 8]
+EXTENDED_THINKING = True
 
 DEFAULT_LANGUAGE = "en"
 _REQID_START = 100_000
@@ -102,6 +109,22 @@ class StreamAbortedError(GeminiError):
     """The stream ended without any answer text."""
 
 
+_ERROR_MESSAGES: dict[int, tuple[type[GeminiError], str]] = {
+    _USAGE_LIMIT: (
+        UsageLimitError,
+        "Gemini free-tier usage limit reached for this five-hour window.",
+    ),
+    _IP_BLOCKED: (
+        TemporarilyBlockedError,
+        "Google temporarily blocked this IP (error 1060).",
+    ),
+    _REQUEST_REJECTED: (
+        RequestRejectedError,
+        "Gemini refused the request; the stored cookies are most likely expired.",
+    ),
+}
+
+
 @dataclass
 class ConversationState:
     """The identifiers that make the next turn a follow-up.
@@ -122,20 +145,6 @@ class ConversationState:
         metadata.extend([None] * (CONTEXT_SLOT - len(metadata)))
         metadata.append(self.context)
         return metadata
-
-    @classmethod
-    def from_metadata(cls, value: Any) -> ConversationState:
-        if not isinstance(value, list):
-            return cls()
-        parts = list(value) + [None] * (METADATA_SLOTS - len(value))
-
-        def text(index: int) -> str:
-            item = parts[index]
-            return item if isinstance(item, str) else ""
-
-        return cls(
-            cid=text(0), rid=text(1), rcid=text(2), context=text(CONTEXT_SLOT)
-        )
 
     def is_new(self) -> bool:
         return not self.cid
@@ -192,19 +201,12 @@ def strip_annotations(text: str) -> str:
     return _ARTIFACT_RE.sub("", _FOLLOWUP_RE.sub("", text)).strip()
 
 
-def build_model_header(
-    model_id: str,
-    *,
-    capacity: int = FREE_CAPACITY,
-    model_number: int = DEFAULT_MODEL_NUMBER,
-    extended_thinking: bool = True,
-    session_uuid: str = "",
-) -> str:
+def build_model_header(model_id: str, *, session_uuid: str = "") -> str:
     """The ``x-goog-ext-525001261-jspb`` value selecting model and tier."""
     header: list = [
         1, None, None, None, model_id, None, None, 0, list(CAPABILITIES),
-        None, None, capacity, None, None, model_number,
-        2 if extended_thinking else 1,
+        None, None, FREE_CAPACITY, None, None, DEFAULT_MODEL_NUMBER,
+        2 if EXTENDED_THINKING else 1,
         session_uuid,
     ]
     return json.dumps(header, separators=(",", ":"))
@@ -215,8 +217,6 @@ def build_payload(
     state: ConversationState,
     *,
     language: str = DEFAULT_LANGUAGE,
-    model_number: int = DEFAULT_MODEL_NUMBER,
-    extended_thinking: bool = True,
     request_uuid: str = "",
 ) -> str:
     """Build the ``f.req`` value for one turn.
@@ -241,8 +241,8 @@ def build_payload(
     inner[59] = request_uuid
     inner[61] = []
     inner[68] = 1
-    inner[79] = model_number
-    inner[80] = 2 if extended_thinking else 1
+    inner[79] = DEFAULT_MODEL_NUMBER
+    inner[80] = 2 if EXTENDED_THINKING else 1
     return json.dumps([None, json.dumps(inner)], separators=(",", ":"))
 
 
@@ -252,19 +252,13 @@ def build_generate_request(
     *,
     tokens: BootstrapTokens,
     access_token: str | None,
-    model_id: str = DEFAULT_MODEL_ID,
-    model_number: int = DEFAULT_MODEL_NUMBER,
-    capacity: int = FREE_CAPACITY,
-    extended_thinking: bool = True,
-    language: str | None = None,
     reqid: int = _REQID_START,
     session_uuid: str = "",
     request_uuid: str | None = None,
 ) -> GenerateRequest:
     """Assemble the full POST for one turn."""
-    language = language or tokens.language or DEFAULT_LANGUAGE
+    language = tokens.language or DEFAULT_LANGUAGE
     request_uuid = request_uuid or str(uuid.uuid4()).upper()
-    request_token = access_token or tokens.access_token or ""
 
     params = {"hl": language, "_reqid": str(reqid), "rt": "c"}
     if tokens.build_label:
@@ -280,24 +274,15 @@ def build_generate_request(
         "referer": "https://gemini.google.com/",
         "x-same-domain": "1",
         MODEL_HEADER_KEY: build_model_header(
-            model_id,
-            capacity=capacity,
-            model_number=model_number,
-            extended_thinking=extended_thinking,
-            session_uuid=session_uuid,
+            DEFAULT_MODEL_ID, session_uuid=session_uuid
         ),
         REQUEST_UUID_HEADER: json.dumps([request_uuid, 1], separators=(",", ":")),
         **STATIC_HEADERS,
     }
     data = {
-        "at": request_token,
+        "at": access_token or tokens.access_token or "",
         "f.req": build_payload(
-            text,
-            state,
-            language=language,
-            model_number=model_number,
-            extended_thinking=extended_thinking,
-            request_uuid=request_uuid,
+            text, state, language=language, request_uuid=request_uuid
         ),
     }
     return GenerateRequest(url=STREAM_URL, params=params, headers=headers, data=data)
@@ -326,21 +311,12 @@ def iter_frames(raw: str) -> Iterator[list]:
                 yield frame
 
 
-def _nested(node: Any, path: tuple[int | str, ...]) -> Any:
-    """Walk a JSPB response tree, tolerating missing slots and dict keys.
-
-    High-numbered JSPB fields sometimes arrive in a sparse dict in the array's
-    last slot instead of positionally, so the walker accepts both.
-    """
-    for key in path:
-        if isinstance(node, list) and isinstance(key, int):
-            if len(node) <= key:
-                return None
-            node = node[key]
-        elif isinstance(node, dict) and isinstance(key, str):
-            node = node.get(key)
-        else:
+def _nested(node: Any, path: tuple[int, ...]) -> Any:
+    """Walk a response array, returning None for any missing slot."""
+    for index in path:
+        if not isinstance(node, list) or len(node) <= index:
             return None
+        node = node[index]
     return node
 
 
@@ -348,7 +324,7 @@ def _frame_error(frame: list) -> int | None:
     """The in-stream error code, if this frame carries one.
 
     A rejected request puts ``7`` in ``frame[5][0]``; a formatted error puts its
-    code at ``frame[5][2][0][1][0]``.
+    code at ``frame[5][2][0][1][0]``, wrapped in a ``BardErrorInfo`` record.
     """
     status = _nested(frame, (5,))
     if not isinstance(status, list) or not status:
@@ -360,23 +336,15 @@ def _frame_error(frame: list) -> int | None:
 
 
 def _raise_for_error(code: int) -> None:
-    if code == _USAGE_LIMIT:
-        raise UsageLimitError(
-            "Gemini free-tier usage limit reached for this five-hour window."
-        )
-    if code == _IP_BLOCKED:
-        raise TemporarilyBlockedError(
-            "Google temporarily blocked this IP (error 1060)."
-        )
-    if code == _REQUEST_REJECTED:
-        raise RequestRejectedError(
-            "Gemini refused the request; the stored cookies are most likely expired."
-        )
-    # Unmapped codes do occur (1096 has been seen as a transient throttle after a
-    # burst of turns). Log loudly so a persistent one is visible in CloudWatch
-    # rather than only showing up as the failover chain quietly taking over.
-    logger.error("Gemini returned unmapped in-stream error code %s", code)
-    raise GeminiError(f"Gemini returned error code {code}.")
+    known = _ERROR_MESSAGES.get(code)
+    if known is None:
+        # Unmapped codes do occur (1096/1097 have been seen after a burst of
+        # turns). Log loudly so a persistent one is visible in CloudWatch rather
+        # than only showing up as the failover chain quietly taking over.
+        logger.error("Gemini returned unmapped in-stream error code %s", code)
+        raise GeminiError(f"Gemini returned error code {code}.")
+    error_type, message = known
+    raise error_type(message)
 
 
 def parse_stream(raw: str) -> TurnResult:
@@ -418,15 +386,6 @@ def parse_stream(raw: str) -> TurnResult:
         context = _nested(inner, (25,))
         if isinstance(context, str) and context:
             state.context = context
-        else:
-            # The continuation token is field 25, but JSPB delivers high-numbered
-            # fields sparsely — in a dict keyed by *field number + 1* — so on
-            # current responses it arrives as metadata["26"] rather than
-            # positionally. Continuity works without it (an empty slot 9 is
-            # accepted), so this is a fidelity bonus, never a requirement.
-            sparse = _nested(inner, (2, "26"))
-            if isinstance(sparse, str) and sparse:
-                state.context = sparse
 
         candidate = _nested(inner, (4, 0))
         if isinstance(candidate, list) and candidate:
@@ -482,33 +441,21 @@ class GeminiWebClient:
         credentials: GeminiCredentials | None = None,
         session: Any | None = None,
         token_fetcher: Callable[..., BootstrapTokens] = fetch_tokens,
-        session_factory: Callable[[GeminiCredentials], Any] = new_session,
-        credential_loader: Callable[..., GeminiCredentials] = load_stored_credentials,
         token_saver: Callable[..., bool] = save_access_token,
-        model_id: str = DEFAULT_MODEL_ID,
-        model_number: int = DEFAULT_MODEL_NUMBER,
-        extended_thinking: bool = True,
-        timeout: int = _REQUEST_TIMEOUT,
     ) -> None:
         self._credentials = credentials
         self._session = session
         self._token_fetcher = token_fetcher
-        self._session_factory = session_factory
-        self._credential_loader = credential_loader
         self._token_saver = token_saver
-        self._model_id = model_id
-        self._model_number = model_number
-        self._extended_thinking = extended_thinking
-        self._timeout = timeout
         self._tokens: BootstrapTokens | None = None
         self._session_uuid = str(uuid.uuid4()).upper()
         self._reqid = random.randint(10_000, 99_999)
 
     def _prepare(self) -> tuple[Any, BootstrapTokens]:
         if self._credentials is None:
-            self._credentials = self._credential_loader()
+            self._credentials = load_stored_credentials()
         if self._session is None:
-            self._session = self._session_factory(self._credentials)
+            self._session = new_session(self._credentials)
         if self._tokens is None:
             self._tokens = self._token_fetcher(self._session)
             logger.info(
@@ -520,6 +467,14 @@ class GeminiWebClient:
             self._cache_scraped_token()
         return self._session, self._tokens
 
+    def _access_token(self) -> str | None:
+        if self._tokens and self._tokens.access_token:
+            return self._tokens.access_token
+        cached = self._credentials.access_token if self._credentials else None
+        if cached:
+            logger.info("Using the cached Gemini access token")
+        return cached
+
     def _cache_scraped_token(self) -> None:
         """Persist a scraped ``at`` token so the next cold start can reuse it."""
         scraped = self._tokens.access_token if self._tokens else None
@@ -529,14 +484,6 @@ class GeminiWebClient:
         self._token_saver(scraped)
         if self._credentials is not None:
             self._credentials = replace(self._credentials, access_token=scraped)
-
-    def _access_token(self) -> str | None:
-        if self._tokens and self._tokens.access_token:
-            return self._tokens.access_token
-        cached = self._credentials.access_token if self._credentials else None
-        if cached:
-            logger.info("Using the cached Gemini access token")
-        return cached
 
     def ask(self, text: str, state: ConversationState | None = None) -> TurnResult:
         """Run one turn, continuing ``state``'s conversation when it has an id."""
@@ -549,10 +496,6 @@ class GeminiWebClient:
             state,
             tokens=tokens,
             access_token=self._access_token(),
-            model_id=self._model_id,
-            model_number=self._model_number,
-            extended_thinking=self._extended_thinking,
-            language=tokens.language,
             reqid=reqid,
             session_uuid=self._session_uuid,
         )
@@ -561,7 +504,7 @@ class GeminiWebClient:
             params=request.params,
             headers=request.headers,
             data=request.data,
-            timeout=self._timeout,
+            timeout=_REQUEST_TIMEOUT,
         )
         if response.status_code != 200:
             raise GeminiError(
