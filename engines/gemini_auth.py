@@ -31,6 +31,7 @@ replaying client cannot produce, so the session is pinned to ``chrome145``.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Callable
@@ -174,6 +175,25 @@ def new_session(credentials: GeminiCredentials) -> requests.Session:
     return session
 
 
+def _cached_access_token(
+    reader: Callable[..., object], bucket: str
+) -> str | None:
+    """The cached ``at`` token, or ``None`` when the cache is unusable.
+
+    The cache is an optimisation, never a requirement: a placeholder, truncated
+    or half-written object must not take the engine down, because the scrape may
+    still produce a token and the fresh path only needs the cached one as a
+    fallback.
+    """
+    try:
+        cached = reader(bucket_name=bucket, file_name=GEMINI_TOKEN_FILE)
+    except (BotoCoreError, ClientError, OSError, json.JSONDecodeError) as e:
+        logger.warning("Ignoring an unreadable Gemini token cache", exc_info=e)
+        return None
+    token = cached.get("access_token") if isinstance(cached, dict) else None
+    return token if isinstance(token, str) and token else None
+
+
 def load_stored_credentials(
     *,
     reader: Callable[..., object] = read_json_from_s3,
@@ -193,9 +213,8 @@ def load_stored_credentials(
     credentials = load_credentials(raw)
     if credentials.access_token:
         return credentials
-    cached = reader(bucket_name=bucket, file_name=GEMINI_TOKEN_FILE)
-    token = cached.get("access_token") if isinstance(cached, dict) else None
-    if isinstance(token, str) and token:
+    token = _cached_access_token(reader, bucket)
+    if token:
         logger.info("Loaded a cached Gemini access token (len=%d)", len(token))
         return replace(credentials, access_token=token)
     return credentials

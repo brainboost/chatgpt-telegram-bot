@@ -30,6 +30,11 @@ def read_json_from_s3(bucket_name: str, file_name: str) -> Any | None:
     if not body:
         return None
     file_content = body.read().decode("utf-8")
+    if not file_content.strip():
+        # An empty object means "nothing stored yet", not invalid JSON. Callers
+        # seed these files by hand, so a placeholder must read as absent rather
+        # than taking the engine down with a JSONDecodeError.
+        return None
     return json.loads(file_content)
 
 
