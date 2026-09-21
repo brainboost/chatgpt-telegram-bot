@@ -4,8 +4,16 @@ The responder is exercised against its provider-I/O seam (``gemini.generate``),
 so these run offline: no network, no credentials, no model.
 """
 
+import pytest
+
 from engines import gemini
-from engines.gemini_web import ConversationState, TurnResult, UsageLimitError
+from engines.gemini_web import (
+    ConversationState,
+    GeminiError,
+    TemporarilyBlockedError,
+    TurnResult,
+    UsageLimitError,
+)
 from engines.session import run_engine_event
 from engines.user_context import MemoryContextStore, UserContext
 
@@ -149,3 +157,81 @@ def test_the_chain_tail_reports_the_error_to_the_user(monkeypatch):
     assert len(published) == 1
     assert published[0]["format"] == "plain"
     assert published[0]["engine"] == "gemini"
+
+
+def test_a_failing_followup_is_retried_as_a_new_conversation(monkeypatch):
+    """A thread Google will not continue must not stay stored forever."""
+    calls = []
+
+    def generate(prompt, state):
+        calls.append(state.cid)
+        if not state.is_new():
+            raise GeminiError("1097")
+        return TurnResult(text="fresh answer", state=ConversationState(cid="c_new"))
+
+    monkeypatch.setattr(gemini, "generate", generate)
+    store = MemoryContextStore()
+    context = _context(store)
+    context.set_session({"cid": "c_dead", "rid": "r_1"})
+
+    answer = gemini.GeminiResponder().answer({"text": "more"}, context)
+    # What the session runtime does after a successful answer.
+    context.add_turn("more", answer)
+    context.persist()
+
+    assert answer == "fresh answer"
+    assert calls == ["c_dead", ""]
+    assert context.session["cid"] == "c_new"
+    assert _context(store).session["cid"] == "c_new"
+
+
+def test_the_dead_thread_is_cleared_even_if_the_retry_also_fails(monkeypatch):
+    def generate(prompt, state):
+        raise GeminiError("always fails")
+
+    monkeypatch.setattr(gemini, "generate", generate)
+    store = MemoryContextStore()
+    context = _context(store)
+    context.set_session({"cid": "c_dead", "rid": "r_1"})
+    context.persist()
+
+    with pytest.raises(GeminiError):
+        gemini.GeminiResponder().answer({"text": "more"}, context)
+
+    assert _context(store).session == {}
+
+
+@pytest.mark.parametrize("error", [UsageLimitError, TemporarilyBlockedError])
+def test_account_wide_errors_are_not_retried_as_a_new_conversation(
+    monkeypatch, error
+):
+    """Retrying cannot help when the whole account is limited or blocked."""
+    calls = []
+
+    def generate(prompt, state):
+        calls.append(state.cid)
+        raise error("account wide")
+
+    monkeypatch.setattr(gemini, "generate", generate)
+    context = _context(MemoryContextStore())
+    context.set_session({"cid": "c_1", "rid": "r_1"})
+
+    with pytest.raises(error):
+        gemini.GeminiResponder().answer({"text": "more"}, context)
+
+    assert calls == ["c_1"]  # one attempt, no pointless retry
+
+
+def test_a_failing_first_turn_is_not_retried(monkeypatch):
+    calls = []
+
+    def generate(prompt, state):
+        calls.append(state.cid)
+        raise GeminiError("nope")
+
+    monkeypatch.setattr(gemini, "generate", generate)
+
+    with pytest.raises(GeminiError):
+        gemini.GeminiResponder().answer({"text": "hi"}, _context(MemoryContextStore()))
+
+    assert calls == [""]
