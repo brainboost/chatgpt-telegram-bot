@@ -85,8 +85,12 @@ _USAGE_LIMIT = 1037
 _IP_BLOCKED = 1060
 _REQUEST_REJECTED = 7
 
-_FOLLOWUP_RE = re.compile(r"\s*<FollowUp\b[^>]*/?>(?:\s*</FollowUp>)?", re.IGNORECASE)
-_ARTIFACT_RE = re.compile(r"https?://googleusercontent\.com/(?:\w+/)*\d+\n*")
+# The tag body tolerates quoted attribute values instead of stopping at the first
+# ">", so `label="a > b"` cannot leave a fragment behind in the message.
+_FOLLOWUP_RE = re.compile(
+    r"\s*<FollowUp\b(?:[^>\"']|\"[^\"]*\"|'[^']*')*/?>(?:\s*</FollowUp>)?",
+    re.IGNORECASE,
+)
 
 
 class GeminiError(RuntimeError):
@@ -123,6 +127,28 @@ _ERROR_MESSAGES: dict[int, tuple[type[GeminiError], str]] = {
         "Gemini refused the request; the stored cookies are most likely expired.",
     ),
 }
+
+# The handful of transport failures that carry a meaning worth distinguishing:
+# a flagged IP can be retried later, dead credentials cannot.
+_STATUS_ERRORS: dict[int, type[GeminiError]] = {
+    400: RequestRejectedError,  # missing or expired `at`
+    401: RequestRejectedError,
+    403: RequestRejectedError,
+    429: TemporarilyBlockedError,
+}
+
+
+def _status_error(status: int) -> GeminiError:
+    message = f"Gemini StreamGenerate returned HTTP {status}."
+    error_type = _STATUS_ERRORS.get(status)
+    if error_type is RequestRejectedError:
+        return RequestRejectedError(
+            f"{message} The stored cookies or the cached access token are most "
+            "likely expired."
+        )
+    if error_type is not None:
+        return error_type(message)
+    return GeminiError(message)
 
 
 @dataclass
@@ -191,14 +217,18 @@ class GenerateRequest:
 
 
 def strip_annotations(text: str) -> str:
-    """Remove web-app decorations that are not part of the answer.
+    """Remove the web app's suggested-follow-up element from the answer.
 
-    Gemini web appends a ``<FollowUp label="…" query="…"/>`` element to suggest
-    the next question, and occasionally emits ``googleusercontent`` artifact
-    URLs. Neither belongs in a Telegram message, and stripping must happen on
-    the accumulated text because the tags can be split across stream deltas.
+    Gemini web appends ``<FollowUp label="…" query="…"/>`` to suggest the next
+    question, which would otherwise render verbatim in a Telegram message.
+    Stripping happens on the accumulated text because the tag can be split across
+    stream deltas.
+
+    ``googleusercontent`` artifact URLs are deliberately *not* stripped: none has
+    been observed in a live answer, and the pattern would also delete a link the
+    model legitimately cited.
     """
-    return _ARTIFACT_RE.sub("", _FOLLOWUP_RE.sub("", text)).strip()
+    return _FOLLOWUP_RE.sub("", text).strip()
 
 
 def build_model_header(model_id: str, *, session_uuid: str = "") -> str:
@@ -493,7 +523,27 @@ class GeminiWebClient:
             self._credentials = replace(self._credentials, access_token=scraped)
 
     def ask(self, text: str, state: ConversationState | None = None) -> TurnResult:
-        """Run one turn, continuing ``state``'s conversation when it has an id."""
+        """Run one turn, continuing ``state``'s conversation when it has an id.
+
+        The bootstrap triple is cached for the life of the container, but ``at``
+        is a session token and ``bl`` is a build label that changes on Google's
+        deploys, so a warm container can outlive both. A rejected request is
+        retried once after re-scraping — falling back to the cached token — which
+        is what lets a long-lived Lambda recover instead of answering 400 until
+        it is recycled.
+        """
+        try:
+            return self._turn(text, state)
+        except RequestRejectedError as error:
+            logger.warning(
+                "Gemini rejected the request; re-scraping bootstrap tokens and "
+                "retrying once",
+                exc_info=error,
+            )
+            self._tokens = None
+            return self._turn(text, state)
+
+    def _turn(self, text: str, state: ConversationState | None) -> TurnResult:
         session, tokens = self._prepare()
         state = state or ConversationState()
         reqid = self._reqid
@@ -514,9 +564,7 @@ class GeminiWebClient:
             timeout=_REQUEST_TIMEOUT,
         )
         if response.status_code != 200:
-            raise GeminiError(
-                f"Gemini StreamGenerate returned HTTP {response.status_code}."
-            )
+            raise _status_error(response.status_code)
         result = parse_stream(response.text)
         if state.is_new():
             logger.info("Gemini started conversation %s", result.state.cid)

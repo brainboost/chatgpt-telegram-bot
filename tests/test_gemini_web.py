@@ -237,10 +237,18 @@ def test_strips_the_followup_suggestion():
     assert strip_annotations(text) == "Answer body."
 
 
-def test_strips_googleusercontent_artifacts():
-    text = "Answer body.http://googleusercontent.com/whatever/1\n"
+def test_strips_a_followup_whose_attribute_contains_an_angle_bracket():
+    """`[^>]*` would stop at the first `>` and leave a fragment behind."""
+    text = 'Answer.<FollowUp label="a > b" query="c > d"/>'
 
-    assert strip_annotations(text) == "Answer body."
+    assert strip_annotations(text) == "Answer."
+
+
+def test_a_cited_googleusercontent_link_is_preserved():
+    """Stripping artifact-looking URLs would delete a link the model cited."""
+    text = "See the file at https://googleusercontent.com/generated/12345"
+
+    assert strip_annotations(text) == text
 
 
 def test_annotations_are_stripped_on_accumulated_text():
@@ -312,8 +320,10 @@ class FakeSession:
     def __init__(self, response):
         self.response = response
         self.posted = None
+        self.posts = 0
 
     def post(self, url, *, params, headers, data, timeout):
+        self.posts += 1
         self.posted = {
             "url": url,
             "params": params,
@@ -322,6 +332,26 @@ class FakeSession:
             "timeout": timeout,
         }
         return self.response
+
+
+class SequencedSession:
+    """Returns a different response per POST, for retry paths."""
+
+    def __init__(self, responses):
+        self.responses = list(responses)
+        self.posted = None
+        self.posts = 0
+
+    def post(self, url, *, params, headers, data, timeout):
+        self.posts += 1
+        self.posted = {
+            "url": url,
+            "params": params,
+            "headers": headers,
+            "data": data,
+            "timeout": timeout,
+        }
+        return self.responses.pop(0)
 
 
 def _client(response, *, tokens, credentials=None):
@@ -401,6 +431,64 @@ def test_client_reports_a_non_200_status():
         client.ask("hello")
 
     assert "500" in str(error.value)
+
+
+@pytest.mark.parametrize("status", [400, 401, 403])
+def test_dead_credentials_are_reported_as_a_rejected_request(status):
+    client, _ = _client(FakeResponse("", status_code=status), tokens=TOKENS)
+
+    with pytest.raises(RequestRejectedError) as error:
+        client.ask("hello")
+
+    assert str(status) in str(error.value)
+
+
+def test_a_throttled_transport_status_is_reported_as_an_ip_block():
+    client, _ = _client(FakeResponse("", status_code=429), tokens=TOKENS)
+
+    with pytest.raises(TemporarilyBlockedError):
+        client.ask("hello")
+
+
+def test_a_rejected_request_rescrapes_the_tokens_and_retries_once():
+    """A warm container can outlive `at` and `bl`; it must recover, not 400."""
+    session = FakeSession(FakeResponse("", status_code=400))
+    scrapes = []
+
+    def token_fetcher(_session):
+        scrapes.append(1)
+        return TOKENS
+
+    client = GeminiWebClient(
+        credentials=GeminiCredentials(cookies={"__Secure-1PSID": "psid"}),
+        session=session,
+        token_fetcher=token_fetcher,
+        token_saver=lambda _token: False,
+    )
+
+    with pytest.raises(RequestRejectedError):
+        client.ask("hello")
+
+    # Initial scrape plus exactly one refresh — the retry is bounded.
+    assert len(scrapes) == 2
+    assert session.posts == 2
+
+
+def test_a_recovered_request_succeeds_after_the_rescrape():
+    session = SequencedSession(
+        [FakeResponse("", status_code=400), FakeResponse(framed(result_frame("ok", context="ctx")))]
+    )
+    scrapes = []
+
+    client = GeminiWebClient(
+        credentials=GeminiCredentials(cookies={"__Secure-1PSID": "psid"}),
+        session=session,
+        token_fetcher=lambda _session: (scrapes.append(1), TOKENS)[1],
+        token_saver=lambda _token: False,
+    )
+
+    assert client.ask("hello").text == "ok"
+    assert len(scrapes) == 2
 
 
 def test_client_increments_reqid_between_turns():
