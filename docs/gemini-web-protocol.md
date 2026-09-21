@@ -263,6 +263,51 @@ text, not per delta, because the tag can be split across stream frames.
   cookies is reported to cause HTTP 401 while Google rotates the session.
 - Do not hand-write `sec-ch-ua*`/`User-Agent` on top of the impersonation profile.
 
+## Product and operational risk
+
+This design makes every bot user share **one personal Google account**, and that
+has consequences worth stating before deployment rather than discovering later:
+
+- **Privacy.** Every user's conversations are written to that account's Gemini
+  history. Whoever holds the cookies can read them, and users are not told their
+  prompts land in someone else's account. For a multi-user bot this is a real
+  disclosure, not a technicality.
+- **Shared allowance.** The five-hour compute allowance is per account, not per
+  user, so one heavy user exhausts it for everyone until the window resets.
+- **Terms of service.** Automated cookie replay is not a supported use of the web
+  app and can get the account flagged or locked. The in-stream 1097 rejections
+  observed after a burst of turns are consistent with rate-limiting of exactly
+  this kind.
+- **Recommendation:** use a **dedicated throwaway account**, not the operator's
+  main Google account, and treat its cookies as a shared secret. Note the account
+  on the deploy ticket so the blast radius is known.
+
+## Known limitations
+
+- **Lost update on the context row.** The row is read at the start of an
+  invocation and written with `put_item` after the answer, so two messages from
+  the same user in quick succession — SNS can run them in concurrent Lambdas —
+  both start from the same thread ids and the last writer wins. The losing turn's
+  `rid`/`context` are dropped, leaving the next follow-up pointing at a stale
+  answer, which is itself a plausible way to provoke the rejected follow-ups
+  described above. The engine recovers (a failed follow-up is retried as a new
+  conversation and the dead thread is dropped), so the blast radius is one
+  context-less turn rather than a permanently dead thread, but the row is not
+  correctly serialized. The proper fix is a conditional write against a revision
+  attribute, or serializing per user.
+
+- **Failures are invisible to the operator.** A dead `__Secure-1PSID` does not
+  announce itself: the request fails over to the next chat provider and the user
+  still gets an answer, so the bot merely looks slightly less capable. One log
+  line and one message already exist, so a CloudWatch metric filter needs no code
+  change:
+  - `Provider 'gemini' failed` — emitted by the shared runtime on any failover,
+    the general "Gemini is down" signal;
+  - `Gemini StreamGenerate returned HTTP 400` (or `401`/`403`), and
+    `Gemini refused the request` — the expired-credentials signal. These are
+    exception messages, so they reach CloudWatch through the traceback the
+    failover log line prints rather than as a line of their own.
+
 ## How to recapture when Google changes this
 
 1. In a logged-in browser, open DevTools → Network, filter to `StreamGenerate`.
