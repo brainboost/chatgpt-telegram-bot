@@ -20,8 +20,15 @@ Interface summary (everything a caller must know):
   exchanges are kept (oldest dropped). ``persist()`` writes the row with a
   60-day ``exp`` TTL. ``reset()`` deletes the row and clears memory.
 
-Deliberate shape change: rows are now ``{user_id, engine, turns, exp}``. The
-old ``conversation_id``/``parent_id``/``optional`` columns are no longer
+Engine-scoped session state travels in the same row. ``session`` is an opaque
+``dict`` the engine owns and interprets; the context module neither reads nor
+validates it. It exists because some providers keep conversation history on
+their own side (the Gemini web backend identifies a thread by id) instead of
+accepting a replayed transcript, so the identifiers have to be persisted
+somewhere with the same lifetime and reset semantics as ``turns``.
+
+Deliberate shape change: rows are now ``{user_id, engine, turns, session, exp}``.
+The old ``conversation_id``/``parent_id``/``optional`` columns are no longer
 written; a legacy row without ``turns`` simply reads as an empty memory and is
 overwritten on the next ``persist()``.
 """
@@ -136,11 +143,22 @@ class UserContext:
         self._store: ContextStore = store if store is not None else DynamoContextStore()
         item = self._store.load(user_id, engine_id)
         self._turns: list = item.get("turns", []) if item else []
+        stored_session = item.get("session") if item else None
+        self._session: dict = stored_session if isinstance(stored_session, dict) else {}
 
     @property
     def turns(self) -> list:
         """Loaded exchanges, oldest first: [{request, response}, ...]."""
         return self._turns
+
+    @property
+    def session(self) -> dict:
+        """Engine-owned continuation state (opaque to this module)."""
+        return self._session
+
+    def set_session(self, state: dict) -> None:
+        """Replace the engine-owned continuation state."""
+        self._session = dict(state)
 
     def add_turn(self, request: str, response: str) -> None:
         self._turns.append(
@@ -153,16 +171,16 @@ class UserContext:
             self._turns = self._turns[-MAX_TURNS:]
 
     def persist(self) -> None:
-        self._store.save(
-            self.user_id,
-            self.engine_id,
-            {
-                "turns": self._turns,
-                "exp": int(time.time()) + TTL_DAYS * 24 * 3600,
-            },
-        )
+        row = {
+            "turns": self._turns,
+            "exp": int(time.time()) + TTL_DAYS * 24 * 3600,
+        }
+        if self._session:
+            row["session"] = self._session
+        self._store.save(self.user_id, self.engine_id, row)
 
     def reset(self) -> None:
         """Forget this engine's memory for the user."""
         self._store.delete(self.user_id, self.engine_id)
         self._turns = []
+        self._session = {}

@@ -1,13 +1,14 @@
 """Tests for the deepened conversation state (candidate 3).
 
 The store seam is exercised through MemoryContextStore — no AWS — and the
-chat adapters' message builders are tested as pure functions (both gemini.py
-and ollama.py are now import-safe offline).
+ollama adapter's message builder is tested as a pure function (ollama.py is
+import-safe offline). The Gemini engine no longer replays a transcript: its web
+backend keeps history server-side, so what it stores is the engine-scoped
+``session`` blob asserted below.
 """
 
 import time
 
-from engines.gemini import _build_contents
 from engines.ollama import _build_messages
 from engines.user_context import (
     MAX_TURNS,
@@ -106,24 +107,62 @@ def test_reset_deletes_the_row_and_clears_memory():
     assert _context(store).turns == []
 
 
-def test_gemini_contents_alternate_history_then_new_text():
-    turns = [
-        {"request": "q1", "response": "a1"},
-        {"request": "q2", "response": "a2"},
-    ]
-    contents = _build_contents("q3", turns)
-
-    assert [c.role for c in contents] == [
-        "user", "model", "user", "model", "user",
-    ]
-    assert [c.parts[0].text for c in contents] == ["q1", "a1", "q2", "a2", "q3"]
+def test_session_state_is_empty_without_a_row():
+    assert _context(_store()).session == {}
 
 
-def test_gemini_contents_without_history_sends_only_the_text():
-    contents = _build_contents("q1", [])
-    assert len(contents) == 1
-    assert contents[0].role == "user"
-    assert contents[0].parts[0].text == "q1"
+def test_session_state_roundtrips_through_the_row():
+    store = _store()
+    context = _context(store)
+    context.set_session({"cid": "c_1", "rid": "r_2", "rcid": "rc_3", "context": "tok"})
+    context.persist()
+
+    assert _context(store).session == {
+        "cid": "c_1",
+        "rid": "r_2",
+        "rcid": "rc_3",
+        "context": "tok",
+    }
+
+
+def test_session_and_turns_share_one_row():
+    store = _store()
+    context = _context(store)
+    context.add_turn("q1", "a1")
+    context.set_session({"cid": "c_1"})
+    context.persist()
+
+    reloaded = _context(store)
+    assert reloaded.turns == [{"request": "q1", "response": "a1"}]
+    assert reloaded.session == {"cid": "c_1"}
+
+
+def test_an_empty_session_is_not_written():
+    store = _store()
+    context = _context(store)
+    context.add_turn("q1", "a1")
+    context.persist()
+
+    assert "session" not in store.load("42_-100", "gemini")
+
+
+def test_reset_clears_session_state():
+    store = _store()
+    context = _context(store)
+    context.set_session({"cid": "c_1"})
+    context.persist()
+
+    context.reset()
+
+    assert context.session == {}
+    assert _context(store).session == {}
+
+
+def test_a_legacy_row_without_session_reads_as_empty():
+    store = _store()
+    store.save("42_-100", "gemini", {"turns": [], "exp": 1})
+
+    assert _context(store).session == {}
 
 
 def test_ollama_messages_alternate_history_then_new_text():
