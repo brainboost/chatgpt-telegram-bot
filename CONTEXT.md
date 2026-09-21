@@ -54,6 +54,13 @@ fails, the worker re-publishes the request to the next one in the chain.
   (`engines/user_context.py`), and providers that keep sessions see their last
   turns as prompt history.
 
+- **Provider session** — the identifiers a provider needs to continue its own
+  thread, stored in the context row's `session` field. It exists because some
+  providers keep history on their side instead of accepting a replayed
+  transcript: the Gemini web backend addresses a conversation by id, so
+  `gemini` persists `{cid, rid, rcid, context}` there and `/reset` clears it
+  like any other memory. The context module treats the field as opaque.
+
 - **Provider worker / session runtime** — the bot-side Lambda role that
   adapts one provider API (`engines/gemini.py`, `ollama.py`, `deepl_tr.py`,
   `ideogram_result.py`) through the shared engine-session runtime
