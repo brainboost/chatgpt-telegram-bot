@@ -206,10 +206,25 @@ response was 218 bytes); that surfaces as `StreamAbortedError`.
 
 **1097 is unexplained.** Every follow-up turn attempted after a long burst of test
 requests was rejected with a bare 1097 and no answer, while first turns kept
-working; a follow-up with the identical metadata shape had succeeded earlier in
-the same session, and using a self-consistent `at`/`bl`/`f.sid` triple from the
-capture changed nothing. The most likely reading is account-level throttling of
-multi-turn automation rather than a payload defect, but that is *not* confirmed.
+working. A follow-up with the identical metadata shape had succeeded earlier in
+the same session. The failure is reproducible (4 conversations, ~5 attempts) and
+the following explanations were each tested and **ruled out**:
+
+| Hypothesis | Test | Result |
+|---|---|---|
+| `at`/`bl`/`f.sid` triple is not self-consistent | used the capture's own consistent triple | still 1097 |
+| Server rotated `__Secure-1PSIDTS` and we ignored it | inspected `Set-Cookie` on both turns | only an unrelated `__Secure-ENID`; no rotation |
+| `rcid` missing or stale | sent the candidate id, and sent none | 1097 either way |
+| Continuation token needed at metadata slot 9 | sent it when available, and empty | 1097 either way |
+| Payload shape wrong | identical shape succeeded earlier the same day | not the shape |
+
+That leaves account-level throttling of multi-turn automation as the most likely
+reading — roughly a dozen conversations had been created within two hours — but it
+is **not confirmed**. The useful diagnostic for whoever hits this next: try a
+follow-up on a *freshly exported browser session on a different account*. If it
+works there, this is a per-account limit; if it fails there too, it is a payload
+problem and the table above is the list of things already excluded.
+
 The failure mode is safe either way: the request fails over to the next chat
 provider, which replays its own history, so the user still gets an answer.
 
