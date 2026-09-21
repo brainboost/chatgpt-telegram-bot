@@ -1,0 +1,226 @@
+# Gemini web protocol reference
+
+The `gemini` provider talks to the **Gemini web app backend** at
+`gemini.google.com`, authenticated by replaying a logged-in browser's cookies.
+This is not a public API: everything below was reverse-engineered from a captured
+HAR and then confirmed by live replay. Google changes it without notice, so this
+document exists as much for repair as for explanation.
+
+**Last verified:** 2026-09-21, against a live free-tier account.
+
+## Why this backend
+
+The web app's allowance is compute-based and refreshes every five hours, separate
+from the API key's own quota. That is the whole point of the change: the previous
+implementation used `google-genai` with an API key, and hit that key's limits.
+
+The trade is that history is not ours to replay — see "Conversation state".
+
+## Request
+
+```
+POST https://gemini.google.com/_/BardChatUi/data/assistant.lamda.BardFrontendService/StreamGenerate
+    ?bl=<build label>&f.sid=<session id>&hl=<lang>&_reqid=<n>&rt=c
+Content-Type: application/x-www-form-urlencoded;charset=UTF-8
+Origin: https://gemini.google.com
+Referer: https://gemini.google.com/
+X-Same-Domain: 1
+x-goog-ext-525001261-jspb: <model header>
+x-goog-ext-525005358-jspb: ["<request uuid>",1]
+x-goog-ext-73010989-jspb: [0]
+x-goog-ext-73010990-jspb: [0,0,0]
+
+at=<access token>&f.req=<urlencoded json>
+```
+
+`bl` and `f.sid` are omitted (not empty) when unknown. `_reqid` starts at a random
+five-digit number and grows by 100000 per request.
+
+`x-goog-ext-525005358-jspb` must carry the *same* uuid that payload slot 59 holds.
+The two `73010989`/`73010990` headers are opaque constants that never vary; send
+them verbatim.
+
+## Bootstrap tokens
+
+`GET https://gemini.google.com/app` and scrape the page globals with plain
+substring searches — no JSON or JS parsing layer:
+
+| Regex | Meaning | Required? |
+|---|---|---|
+| `"SNlM0e":\s*"(.*?)"` | `at` access/anti-CSRF token | **yes** — a request without it is HTTP 400 |
+| `"cfb2h":\s*"(.*?)"` | `bl` server build label | optional, but rolling weekly |
+| `"FdrFJe":\s*"(.*?)"` | `f.sid` session id | optional, per page load |
+| `"TuX5cc":\s*"(.*?)"` | locale — **normalize `en-US` → `en`** | optional |
+| `"qKIAYe":\s*"(.*?)"` | upload Push-ID (unused here) | optional |
+
+**The `at` token is the fragile part.** Since roughly April 2026 Google only
+sometimes embeds `SNlM0e` in the `/app` HTML; a run of six consecutive loads
+returned it zero times, while an earlier run returned it twice. Measured
+properties:
+
+- it is **session-scoped, not page-scoped** — a token captured from one page load
+  still worked roughly an hour later, combined with a *freshly* scraped `bl` and
+  `f.sid`;
+- it is **required** — the same request without it returns HTTP 400.
+
+So the engine scrapes, falls back to the cached `gemini-token.json`, and writes the
+cache back whenever a scrape does succeed. `gemini-cookies.json` is operator input
+and is never rewritten; the cache is a separate object so refreshing a token can
+never damage the exported session.
+
+## Payload (`f.req`)
+
+`f.req` is `[null, "<inner json string>"]`. The inner value is a fixed **81-slot**
+list:
+
+| Slot | Value |
+|---|---|
+| 0 | `[prompt, 0, None, None, None, None, 0]` |
+| 1 | `[language]` |
+| 2 | conversation metadata, 10 slots — see below |
+| **3** | Deep Research session token. **Must stay `None` for normal chat** |
+| 4 | Deep Research uuid (`uuid4().hex`) — likewise unset here |
+| 6 | `[1]` |
+| 7 | `1` (streaming) |
+| 10, 11, 18, 27, 53, 68 | `1`, `0`, `0`, `1`, `0`, `1` |
+| 17 | `[[0]]` |
+| 30 | `[4]` |
+| 41 | `[1]` |
+| 59 | per-request uuid, mirrored into the `525005358` header |
+| 61 | `[]` |
+| 79 | model number (`1` Flash, `3` Pro, `6` Lite) |
+| 80 | `2` extended thinking, `1` standard |
+
+A captured request had slot 3 populated with a ~2.7 KB `!…` string and slot 4 with
+a `uuid4().hex` — the exact signature of Deep Research, which is why slots 3/4 are
+left unset deliberately.
+
+### Conversation state (multi-turn)
+
+Slot 2 is `[cid, rid, rcid, None ×6, context]`. The **only** difference between a
+first turn and a follow-up is this slot, because slot 0 holds a single message and
+Google keeps the transcript:
+
+- first turn: `["", "", "", None …×6, ""]`
+- follow-up: `[<conversation id>, <response id>, <candidate id>, None ×6, <context>]`
+
+`cid`/`rid` come from the previous response's `inner[1][0]`/`[1][1]`, `rcid` from
+the answer candidate's `[0]`. Verified live: a follow-up that supplied these
+correctly recalled the previous turn, and one sent with an **empty** context slot
+also worked, so `context` is a fidelity bonus rather than a requirement.
+
+## Model header
+
+`x-goog-ext-525001261-jspb` is a 17-element array:
+
+| Index | Meaning |
+|---|---|
+| 4 | model id hash |
+| 7 | temporary-chat flag |
+| 8 | client capabilities (`[4,5,6,8]`) |
+| 11 | tier capacity: **1 = free**, 2 advanced, 3 pro, 4 plus |
+| 14 | model number |
+| 15 | thinking level: 1 standard, 2 extended |
+| 16 | per-session uuid (`uuid4().upper()`) |
+
+**Model hashes are volatile.** `fbb127bbb056c959` is the free-tier Flash id at the
+time of writing; Google rotates these, and a stale id surfaces as error 1050/1052.
+The current ids can also be read out of the live frontend bundle
+(`.../_/mss/boq-bard-web/_/js/...`), which listed
+`56fdd199312815e2`, `fbb127bbb056c959`, `a74ec8485b3b5ce4`, `1bc6b5d98741cd3d`.
+
+## Response
+
+```
+)]}'
+
+177
+[["wrb.fr",null,"[null,[\"c_…\",\"r_…\"],{…}]"]]
+253
+…
+```
+
+Frames are `["wrb.fr", rpcid, "<inner json string>", …]`; `rpcid` is `null` for
+StreamGenerate, and the third element is JSON that must be decoded a second time.
+
+**Ignore the length marker.** Google counts it in UTF-16 code units, not bytes, so
+trusting it desynchronises on any answer containing an emoji or a rare CJK
+character. JSON never contains a raw newline, so a line is always a whole value —
+parse line-wise and skip anything that is not a JSON array.
+
+| Path | Meaning |
+|---|---|
+| `inner[1][0]`, `inner[1][1]` | conversation id `c_…`, response id `r_…` |
+| `inner[4][0][0]` | candidate id `rc_…` |
+| `inner[4][0][1][0]` | **the answer text** (arrives as growing deltas) |
+| `inner[4][0][8][0]` | `1` in progress, `2` complete |
+| `inner[25]` | conversation context token |
+| `inner[2]["26"]` | the same field delivered sparsely (see below) |
+
+JSPB delivers high-numbered fields sparsely, in a dict keyed by **field number + 1**,
+so field 25 shows up as metadata key `"26"` instead of positionally.
+
+Other frame tags — `di`, `af.httprm`, `e` — are bookkeeping. They also appear in
+successful streams, so a tag alone means nothing; the trailing number on
+`af.httprm` is a running byte count, not an error code.
+
+### Errors arrive inside an HTTP 200
+
+Quota and abuse conditions are **not** HTTP status codes. The code sits at
+`frame[5][2][0][1][0]`, wrapped as
+`["type.googleapis.com/assistant.boq.bard.application.BardErrorInfo",[<code>]]`,
+and a rejected request instead puts `7` in `frame[5][0]`.
+
+| Code | Meaning | Engine behaviour |
+|---|---|---|
+| 1037 | free-tier usage limit for the window | `UsageLimitError` → failover |
+| 1060 | IP temporarily blocked | `TemporarilyBlockedError` → failover |
+| 7 | request rejected | `RequestRejectedError` — usually expired cookies |
+| 1096, 1097 | observed after a burst of turns; transient | logged loudly, then failover |
+
+Unknown codes are logged at error level before failing over, so a persistent one is
+visible in CloudWatch instead of silently hiding behind the provider chain. When
+quota is spent the stream can also carry only bookkeeping and no `wfr.fr` payload at
+all (one such response was 218 bytes); that surfaces as `StreamAbortedError`.
+
+## Answer decorations
+
+Web answers end with a suggestion element that is not part of the answer:
+
+```
+<FollowUp label="…" query="…"/>
+```
+
+Strip it — and any `googleusercontent.com` artifact URLs — from the *accumulated*
+text, not per delta, because the tag can be split across stream frames.
+
+## Anti-bot constraints
+
+- Use `curl_cffi` with browser impersonation. Plain `httpx`/`requests` expose no TLS
+  fingerprint and are not viable against this endpoint.
+- Impersonate **`chrome145`**, not `chrome146+`: Chrome 146 on Windows enables Device
+  Bound Session Credentials, which binds a session to a device key that a replaying
+  client cannot produce.
+- Replay **only** `__Secure-1PSID` and `__Secure-1PSIDTS`. Sending the other Google
+  cookies is reported to cause HTTP 401 while Google rotates the session.
+- Do not hand-write `sec-ch-ua*`/`User-Agent` on top of the impersonation profile.
+
+## How to recapture when Google changes this
+
+1. In a logged-in browser, open DevTools → Network, filter to `StreamGenerate`.
+2. Ask one question, then right-click the request → **Copy → Copy as cURL** (or save
+   a HAR **with content**, since a plain Chrome HAR omits response bodies).
+3. Check the four things that break first: the URL path and query keys, the payload
+   slot layout, the answer path (`inner[4][0][1][0]`), and the error wrapper shape.
+4. Export the cookies (a DevTools/browser cookie export) and store them as
+   `gemini-cookies.json` in the bot bucket. Only `__Secure-1PSID` and
+   `__Secure-1PSIDTS` are read.
+5. Re-run `tests/test_gemini_web.py` with the captured frames as fixtures — the
+   parser is tested against the real framing, so a format change shows up there.
+
+## Seeding credentials
+
+`gemini-cookies.json` in the bot bucket accepts either a browser cookie export (a
+list of cookie objects) or a plain `{name: value}` mapping. `gemini-token.json` is
+written by the engine and holds `{"access_token": …}`; deleting it just forces a
+fresh scrape. Both are read through `BOT_S3_BUCKET` from SSM Parameter Store.
