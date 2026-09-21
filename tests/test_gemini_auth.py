@@ -3,6 +3,8 @@
 All I/O is injected, so these run offline: no bucket, no network, no Google.
 """
 
+import json
+
 import pytest
 from botocore.exceptions import ClientError
 
@@ -160,6 +162,31 @@ def test_the_token_file_is_optional():
     )
 
     assert credentials.access_token is None
+
+
+@pytest.mark.parametrize("cached", ["", "   ", None, [], {"access_token": ""}, 42])
+def test_an_empty_or_junk_token_cache_is_ignored(cached):
+    """The cache is optional, so a placeholder object must not break the engine."""
+    credentials = load_stored_credentials(
+        reader=_two_file_reader(BROWSER_EXPORT, cached), param_reader=lambda **_: "b"
+    )
+
+    assert credentials.access_token is None
+    assert credentials.has_session()
+
+
+def test_a_truncated_token_cache_is_ignored_not_fatal():
+    """Seeding is done by hand, so a half-written object is a real possibility."""
+
+    def reader(*, bucket_name, file_name):
+        if file_name == "gemini-cookies.json":
+            return BROWSER_EXPORT
+        raise json.JSONDecodeError("Expecting value", "", 0)
+
+    credentials = load_stored_credentials(reader=reader, param_reader=lambda **_: "b")
+
+    assert credentials.access_token is None
+    assert credentials.has_session()
 
 
 def test_a_token_embedded_in_the_cookies_file_short_circuits_the_cache_read():
