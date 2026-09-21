@@ -217,13 +217,26 @@ the following explanations were each tested and **ruled out**:
 | `rcid` missing or stale | sent the candidate id, and sent none | 1097 either way |
 | Continuation token needed at metadata slot 9 | sent it when available, and empty | 1097 either way |
 | Payload shape wrong | identical shape succeeded earlier the same day | not the shape |
+| Conversations created by our own replay are not continuable | followed up into a conversation the **browser** created (taken from the capture) | still 1097 |
+| A different bootstrap route exposes `at` more reliably | 12 loads across 6 routes (`/app`, `/app?hl=en`, `/`, `/u/0/app`, `/u/0/`, `?authuser=0`) | 0/12; the token's presence is time-dependent, not path-dependent |
+
+Two of these are worth keeping in mind for their own sake. The route sweep means
+there is no better bootstrap URL to switch to — the cache really is the primary
+mechanism and the scrape is opportunistic. And the browser-conversation test rules
+out anything about how our own requests create threads.
 
 That leaves account-level throttling of multi-turn automation as the most likely
 reading — roughly a dozen conversations had been created within two hours — but it
-is **not confirmed**. The useful diagnostic for whoever hits this next: try a
-follow-up on a *freshly exported browser session on a different account*. If it
-works there, this is a per-account limit; if it fails there too, it is a payload
-problem and the table above is the list of things already excluded.
+is **not confirmed**. The one hypothesis that could not be tested is whether a
+*freshly scraped* `at` behaves differently from the cached one, because the page
+stopped exposing the token before that path could be exercised (a verification
+harness bug also hid this for a while: it injected the captured token whenever the
+scrape missed, so every follow-up attempt silently used a stale token — check the
+`tokens` value actually reaching `build_generate_request`, not the bootstrap log
+line). The useful diagnostic for whoever hits this next: try a follow-up on a
+*freshly exported browser session on a different account*. If it works there, this
+is a per-account limit; if it fails there too, it is a payload problem and the
+table above is the list of things already excluded.
 
 The failure mode is safe either way: the request fails over to the next chat
 provider, which replays its own history, so the user still gets an answer.
