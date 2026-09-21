@@ -27,6 +27,7 @@ import logging
 
 from .gemini_web import (
     ConversationState,
+    CredentialsRejectedError,
     GeminiError,
     TemporarilyBlockedError,
     TurnResult,
@@ -38,10 +39,14 @@ from .user_context import UserContext
 
 logger = logging.getLogger(__name__)
 
-# A quota or an IP block applies to the whole account, so retrying a different
-# conversation cannot help. Every other failure might be specific to the stored
-# thread, so it is worth retrying freshly.
-_ACCOUNT_WIDE_ERRORS = (UsageLimitError, TemporarilyBlockedError)
+# A quota, an IP block or dead credentials apply to the whole account, so
+# retrying a different conversation cannot help. Every other failure might be
+# specific to the stored thread, so it is worth retrying freshly.
+_ACCOUNT_WIDE_ERRORS = (
+    UsageLimitError,
+    TemporarilyBlockedError,
+    CredentialsRejectedError,
+)
 
 
 class GeminiResponder(EngineResponder):

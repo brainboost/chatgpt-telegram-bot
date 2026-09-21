@@ -9,6 +9,7 @@ import pytest
 from engines import gemini
 from engines.gemini_web import (
     ConversationState,
+    CredentialsRejectedError,
     GeminiError,
     TemporarilyBlockedError,
     TurnResult,
@@ -201,7 +202,9 @@ def test_the_dead_thread_is_cleared_even_if_the_retry_also_fails(monkeypatch):
     assert _context(store).session == {}
 
 
-@pytest.mark.parametrize("error", [UsageLimitError, TemporarilyBlockedError])
+@pytest.mark.parametrize(
+    "error", [UsageLimitError, TemporarilyBlockedError, CredentialsRejectedError]
+)
 def test_account_wide_errors_are_not_retried_as_a_new_conversation(
     monkeypatch, error
 ):

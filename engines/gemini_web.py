@@ -109,6 +109,10 @@ class RequestRejectedError(GeminiError):
     """The request was refused — usually dead cookies or an invalid payload."""
 
 
+class CredentialsRejectedError(RequestRejectedError):
+    """The transport refused the credentials (HTTP 400/401/403), not one thread."""
+
+
 class StreamAbortedError(GeminiError):
     """The stream ended without any answer text."""
 
@@ -131,9 +135,9 @@ _ERROR_MESSAGES: dict[int, tuple[type[GeminiError], str]] = {
 # The handful of transport failures that carry a meaning worth distinguishing:
 # a flagged IP can be retried later, dead credentials cannot.
 _STATUS_ERRORS: dict[int, type[GeminiError]] = {
-    400: RequestRejectedError,  # missing or expired `at`
-    401: RequestRejectedError,
-    403: RequestRejectedError,
+    400: CredentialsRejectedError,  # missing or expired `at`
+    401: CredentialsRejectedError,
+    403: CredentialsRejectedError,
     429: TemporarilyBlockedError,
 }
 
@@ -141,8 +145,8 @@ _STATUS_ERRORS: dict[int, type[GeminiError]] = {
 def _status_error(status: int) -> GeminiError:
     message = f"Gemini StreamGenerate returned HTTP {status}."
     error_type = _STATUS_ERRORS.get(status)
-    if error_type is RequestRejectedError:
-        return RequestRejectedError(
+    if error_type is CredentialsRejectedError:
+        return CredentialsRejectedError(
             f"{message} The stored cookies or the cached access token are most "
             "likely expired."
         )
@@ -540,8 +544,21 @@ class GeminiWebClient:
                 "retrying once",
                 exc_info=error,
             )
+            before = self._token_fingerprint()
             self._tokens = None
+            self._prepare()
+            if self._token_fingerprint() == before:
+                # Nothing changed, so resending would repeat the rejected request.
+                raise
             return self._turn(text, state)
+
+    def _token_fingerprint(self) -> tuple:
+        tokens = self._tokens
+        return (
+            self._access_token(),
+            tokens.build_label if tokens else None,
+            tokens.session_id if tokens else None,
+        )
 
     def _turn(self, text: str, state: ConversationState | None) -> TurnResult:
         session, tokens = self._prepare()

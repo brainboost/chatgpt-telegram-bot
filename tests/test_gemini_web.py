@@ -17,6 +17,7 @@ from engines.gemini_web import (
     REQUEST_UUID_HEADER,
     STREAM_URL,
     ConversationState,
+    CredentialsRejectedError,
     GeminiError,
     GeminiWebClient,
     RequestRejectedError,
@@ -457,7 +458,9 @@ def test_a_rejected_request_rescrapes_the_tokens_and_retries_once():
 
     def token_fetcher(_session):
         scrapes.append(1)
-        return TOKENS
+        return BootstrapTokens(
+            access_token=f"at-{len(scrapes)}", build_label="bl", session_id="sid"
+        )
 
     client = GeminiWebClient(
         credentials=GeminiCredentials(cookies={"__Secure-1PSID": "psid"}),
@@ -474,6 +477,22 @@ def test_a_rejected_request_rescrapes_the_tokens_and_retries_once():
     assert session.posts == 2
 
 
+def test_an_unchanged_rescrape_is_not_resent():
+    """Resending identical tokens would just repeat the rejected request."""
+    session = FakeSession(FakeResponse("", status_code=400))
+    client = GeminiWebClient(
+        credentials=GeminiCredentials(cookies={"__Secure-1PSID": "psid"}),
+        session=session,
+        token_fetcher=lambda _session: TOKENS,
+        token_saver=lambda _token: False,
+    )
+
+    with pytest.raises(CredentialsRejectedError):
+        client.ask("hello")
+
+    assert session.posts == 1
+
+
 def test_a_recovered_request_succeeds_after_the_rescrape():
     session = SequencedSession(
         [FakeResponse("", status_code=400), FakeResponse(framed(result_frame("ok", context="ctx")))]
@@ -483,7 +502,10 @@ def test_a_recovered_request_succeeds_after_the_rescrape():
     client = GeminiWebClient(
         credentials=GeminiCredentials(cookies={"__Secure-1PSID": "psid"}),
         session=session,
-        token_fetcher=lambda _session: (scrapes.append(1), TOKENS)[1],
+        token_fetcher=lambda _session: (
+            scrapes.append(1),
+            BootstrapTokens(access_token=f"at-{len(scrapes)}", build_label="bl"),
+        )[1],
         token_saver=lambda _token: False,
     )
 
