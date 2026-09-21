@@ -22,7 +22,6 @@ lambda = [
     "pydantic>=2.10",
 ]
 engines = [
-    "google-genai>=2.22.0",
     "deepl>=1.32.0",
     "requests>=2.34.2",
     "curl_cffi>=0.16.3",
