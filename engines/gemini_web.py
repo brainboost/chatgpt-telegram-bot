@@ -401,9 +401,6 @@ def parse_stream(raw: str) -> TurnResult:
             if isinstance(marker, str) and marker:
                 state.rcid = marker
 
-    if error is not None:
-        _raise_for_error(error)
-
     answer = ""
     for marker in order:
         if texts.get(marker):
@@ -413,9 +410,20 @@ def parse_stream(raw: str) -> TurnResult:
         answer = max(texts.values(), key=len)
 
     if not answer:
+        # An error only costs us the turn when it costs us the answer: Google
+        # appends codes such as 1096 *after* a complete answer (observed live),
+        # and discarding a finished reply would fail the request over for
+        # nothing.
+        if error is not None:
+            _raise_for_error(error)
         raise StreamAbortedError(
             "Gemini ended the stream without an answer (the request may have "
             "been silently aborted)."
+        )
+
+    if error is not None:
+        logger.warning(
+            "Gemini reported code %s after completing the turn; ignoring it", error
         )
     if not completed and not state.context:
         logger.warning(
@@ -423,7 +431,6 @@ def parse_stream(raw: str) -> TurnResult:
             len(answer),
         )
     return TurnResult(text=strip_annotations(answer), state=state)
-
 
 class GeminiWebClient:
     """Lazily initialized client reused across turns in one container.

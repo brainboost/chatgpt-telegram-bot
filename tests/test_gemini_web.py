@@ -70,6 +70,14 @@ def result_frame(
     return [["wrb.fr", None, json.dumps(inner)]]
 
 
+BARD_ERROR = "type.googleapis.com/assistant.boq.bard.application.BardErrorInfo"
+
+
+def error_frame(code: int) -> list:
+    """A BardErrorInfo frame, exactly as Google wraps it."""
+    return [["wrb.fr", None, None, None, None, [13, None, [[BARD_ERROR, [code]]]]]]
+
+
 def inner_of(payload: str) -> list:
     return json.loads(json.loads(payload)[1])
 
@@ -197,6 +205,30 @@ def test_a_rejected_request_is_reported_as_expired_credentials():
         parse_stream(raw)
 
     assert "cookies" in str(error.value)
+
+
+def test_a_trailing_error_after_a_complete_answer_is_ignored():
+    """Google appends codes such as 1096 *after* a finished turn.
+
+    Verified live: an answer with completion marker 2, a conversation title, and
+    then a BardErrorInfo frame. Raising here would discard a good reply.
+    """
+    raw = framed(result_frame("probe ok", context="ctx"), error_frame(1096))
+
+    result = parse_stream(raw)
+
+    assert result.text == "probe ok"
+    assert result.state.cid == "c_1"
+
+
+def test_an_error_code_is_still_fatal_when_no_answer_arrived():
+    with pytest.raises(UsageLimitError):
+        parse_stream(framed(error_frame(1037)))
+
+
+@pytest.mark.parametrize("code", [1096, 1097])
+def test_an_unknown_trailing_error_does_not_cost_a_good_answer(code):
+    assert parse_stream(framed(result_frame("still fine", context="c"), error_frame(code))).text == "still fine"
 
 
 def test_strips_the_followup_suggestion():

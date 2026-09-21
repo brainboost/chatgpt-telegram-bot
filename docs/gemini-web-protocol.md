@@ -177,12 +177,41 @@ and a rejected request instead puts `7` in `frame[5][0]`.
 | 1037 | free-tier usage limit for the window | `UsageLimitError` → failover |
 | 1060 | IP temporarily blocked | `TemporarilyBlockedError` → failover |
 | 7 | request rejected | `RequestRejectedError` — usually expired cookies |
-| 1096, 1097 | observed after a burst of turns; transient | logged loudly, then failover |
+| 1096 | appended to a turn that **already succeeded** | logged as a warning, then ignored |
+| 1097 | follow-up rejected with no answer at all | logged, then failover |
 
-Unknown codes are logged at error level before failing over, so a persistent one is
-visible in CloudWatch instead of silently hiding behind the provider chain. When
-quota is spent the stream can also carry only bookkeeping and no `wfr.fr` payload at
-all (one such response was 218 bytes); that surfaces as `StreamAbortedError`.
+### A code can arrive *after* a good answer
+
+This one cost real debugging time. A captured stream contained, in order: the
+finished answer with completion marker `2`, a generated conversation title, **and
+then** an error frame:
+
+```
+…[["wrb.fr",null,"[null,[\"c_…\",\"r_…\"],null,null,[[\"rc_…\",[\"probe ok\"],…,[2],…]]]"]]
+…[["wrb.fr",null,"[null,[\"c_…\",\"r_…\"],{\"11\":[\"System Probe Confirmation\"],\"44\":true}]"]]
+…[["wrb.fr",null,null,null,null,[13,null,[["type.googleapis.com/assistant.boq.bard.application.BardErrorInfo",[1096]]]]]]
+```
+
+So an error code is **not** by itself a failed turn. The engine therefore treats a
+code as fatal only when the stream produced no answer; a code that arrives
+alongside a complete answer is logged and ignored. Raising on it (the first
+implementation) discarded a finished reply and failed the request over to another
+provider for no reason.
+
+Codes are also not all equally meaningful: an unknown code is logged at error
+level so a persistent one is visible in CloudWatch rather than only showing up as
+the failover chain quietly taking over. When quota is spent the stream can
+additionally carry only bookkeeping and no `wrb.fr` payload at all (one such
+response was 218 bytes); that surfaces as `StreamAbortedError`.
+
+**1097 is unexplained.** Every follow-up turn attempted after a long burst of test
+requests was rejected with a bare 1097 and no answer, while first turns kept
+working; a follow-up with the identical metadata shape had succeeded earlier in
+the same session, and using a self-consistent `at`/`bl`/`f.sid` triple from the
+capture changed nothing. The most likely reading is account-level throttling of
+multi-turn automation rather than a payload defect, but that is *not* confirmed.
+The failure mode is safe either way: the request fails over to the next chat
+provider, which replays its own history, so the user still gets an answer.
 
 ## Answer decorations
 
