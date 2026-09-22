@@ -178,7 +178,7 @@ and a rejected request instead puts `7` in `frame[5][0]`.
 | 1060 | IP temporarily blocked | `TemporarilyBlockedError` → failover |
 | 7 | request rejected | `RequestRejectedError` — usually expired cookies |
 | 1096 | appended to **every** turn observed, successful or not | logged as a warning, then ignored |
-| 1097 | any turn carrying conversation ids, no answer at all | `ConversationNotContinuableError` → thread dropped, retried as a new conversation |
+| 1097 | any turn carrying conversation ids, no answer at all — a per-account throttle on multi-turn chats (see below) | `ConversationNotContinuableError` → thread dropped, retried as a new conversation |
 
 ### A code can arrive *after* a good answer
 
@@ -224,17 +224,43 @@ text it had with only a log line, which is how a reply that stops mid-sentence
 reaches the user with nothing to account for it. Failing instead lets the failover
 chain, or `_run_turn`'s fresh-conversation retry, answer properly.
 
-**1097 is still unexplained, and it is the normal answer to a follow-up.** Every
-turn that carries conversation ids is refused with a bare 1097 and no answer,
-while every first turn succeeds. The failure is reproducible across sessions and
-conversations, and each explanation below was tested and **ruled out**:
+**1097 is a per-account throttle on multi-turn chats (resolved 2026-09-22).** Every
+turn that carries conversation ids is refused with a bare 1097 and no answer, while
+every first turn succeeds — so an affected account loses all memory between
+messages, and each follow-up logs one line and is retried as a new conversation.
+
+The payload was never the problem. Each explanation below was tested and **ruled
+out**, and the code path they all exercise was then shown working end to end from a
+workstation with a freshly exported browser session from a **different** account
+(no cached `at`):
+
+| Probe, different account | Result |
+|---|---|
+| first turn, "Remember the number 4817" | answered |
+| follow-up, same client | answered `4817` |
+| follow-up to the same thread, **new client** (fresh `session_uuid`) | answered `4817` |
+
+Three conclusions follow from that run, and each one closes a question the entries
+below had left open:
+
+- **The throttle belongs to the account**, so the remedy is fresh cookies from
+  another account in `gemini-cookies.json` — a browser cookie export is accepted
+  as-is, list shape included — not a code change.
+- **The per-client `session_uuid` does not tie a thread to the container that
+  created it**, which matters because a follow-up may land on any Lambda.
+- **No continuation token is needed at all**: metadata slot 25 is empty on every
+  turn of that working chain, so `[cid, rid, rcid, …]` is sufficient and there is
+  no token to fetch from another RPC. That also explains why a successful turn's
+  response contains none — scanning every frame of a live first turn for any string
+  longer than 40 characters finds nothing, the final frame's inner payload has only
+  three slots (`1` = ids, `2` = the generated title), and slot 25 is empty.
 
 | Hypothesis | Test | Result |
 |---|---|---|
 | `at`/`bl`/`f.sid` triple is not self-consistent | used the capture's own consistent triple | still 1097 |
 | Server rotated `__Secure-1PSIDTS` and we ignored it | inspected `Set-Cookie` on both turns | only an unrelated `__Secure-ENID`; no rotation |
 | `rcid` missing or stale | sent the candidate id, and sent none | 1097 either way |
-| Continuation token needed at metadata slot 9 | sent it when available, and empty | 1097 either way |
+| Continuation token needed at metadata slot 9 | sent it when available, and empty | 1097 either way; and a working chain has it empty |
 | Payload shape wrong | identical shape succeeded earlier the same day | not the shape |
 | Conversations created by our own replay are not continuable | followed up into a conversation the **browser** created (taken from the capture) | still 1097 |
 | A different bootstrap route exposes `at` more reliably | 12 loads across 6 routes (`/app`, `/app?hl=en`, `/`, `/u/0/app`, `/u/0/`, `?authuser=0`) | 0/12; the token's presence is time-dependent, not path-dependent |
@@ -243,39 +269,21 @@ conversations, and each explanation below was tested and **ruled out**:
 | The capability list must be doubled | sent `[4,5,6,8,4,5,6,8]` | still 1097 |
 | Metadata must use empty strings rather than nulls | sent `["c…","r…","rc…","","","","","","",""]` | HTTP **400**, so slot 2 is validated — but with real ids and nulls it is 1097 |
 
-Critically, **a successful turn's response contains no continuation token at
-all**: scanning every frame of a live first turn for any string longer than 40
-characters finds none, the final frame's inner payload has only three slots
-(`1` = ids, `2` = the generated title), and metadata slot 25 is empty. So either
-the web app obtains the continuation state from a different RPC — one we do not
-call — or continuation is blocked for this account. That is the next thing to
-establish, and it needs a HAR of a real browser *follow-up*, because the captured
-HAR holds a single Deep Research first turn.
+Note that `at` **was** scraped successfully on that other account's first page load,
+so the scrape is opportunistic per session, not broken: when the page omits the
+token and no cache exists, an engine cold start has nothing to send and must fail
+over. The route sweep means there is no better bootstrap URL to switch to.
 
-Because a refusal is an expected answer rather than a defect, `_run_turn` reports
-it in one line and without a traceback; a traceback per message would bury the
-failures that are genuinely unexpected.
+One debugging trap is worth recording: an earlier verification harness injected the
+captured token whenever the scrape missed, so every follow-up attempt silently used
+a stale token while the bootstrap log still said `at=present`. Check the value
+actually reaching `build_generate_request`, not the log line.
 
-Two of the entries above are worth keeping in mind for their own sake. The route
-sweep means there is no better bootstrap URL to switch to — the cache really is
-the primary mechanism and the scrape is opportunistic. And the browser-conversation
-test rules out anything about how our own requests create threads.
-
-That leaves account-level throttling of multi-turn automation as one reading —
-roughly a dozen conversations get created per test session — but it is **not
-confirmed**. The one hypothesis that could not be tested is whether a *freshly
-scraped* `at` behaves differently from the cached one, because the page stopped
-exposing the token before that path could be exercised (a verification harness bug
-also hid this for a while: it injected the captured token whenever the scrape
-missed, so every follow-up attempt silently used a stale token — check the
-`tokens` value actually reaching `build_generate_request`, not the bootstrap log
-line). The useful diagnostic for whoever hits this next: try a follow-up on a
-*freshly exported browser session on a different account*. If it works there, this
-is a per-account limit; if it fails there too, it is a payload problem and the
-table above is the list of things already excluded.
-
-The failure mode is safe either way: the request fails over to the next chat
-provider, which replays its own history, so the user still gets an answer.
+Because a refusal is an expected answer rather than a defect, `_run_turn` reports it
+in one line and without a traceback; a traceback per message would bury the failures
+that are genuinely unexpected. Expect a replacement account to be throttled the same
+way under sustained multi-turn load — the failure mode is safe, since the thread is
+dropped and the turn is answered fresh, but it costs every conversation its memory.
 
 ## Answer decorations
 
@@ -311,12 +319,15 @@ has consequences worth stating before deployment rather than discovering later:
 - **Shared allowance.** The five-hour compute allowance is per account, not per
   user, so one heavy user exhausts it for everyone until the window resets.
 - **Terms of service.** Automated cookie replay is not a supported use of the web
-  app and can get the account flagged or locked. The in-stream 1097 rejections
-  observed after a burst of turns are consistent with rate-limiting of exactly
-  this kind.
+  app and can get the account flagged or locked. The in-stream 1097 rejections are
+  a per-account throttle of exactly this kind, and they hit **multi-turn chats
+  first**: first turns kept succeeding on the throttled account while every
+  follow-up was refused (confirmed 2026-09-22; see above).
 - **Recommendation:** use a **dedicated throwaway account**, not the operator's
   main Google account, and treat its cookies as a shared secret. Note the account
-  on the deploy ticket so the blast radius is known.
+  on the deploy ticket so the blast radius is known. Because the throttle is per
+  account and multi-turn is the first thing it removes, plan on rotating the
+  account rather than treating it as permanent infrastructure.
 
 ## Known limitations
 
@@ -373,3 +384,9 @@ has consequences worth stating before deployment rather than discovering later:
 list of cookie objects) or a plain `{name: value}` mapping. `gemini-token.json` is
 written by the engine and holds `{"access_token": …}`; deleting it just forces a
 fresh scrape. Both are read through `BOT_S3_BUCKET` from SSM Parameter Store.
+
+Replacing the account is just replacing this one object: export the cookies while
+logged in to the new account and upload them over the same key. Nothing else
+identifies the account, so no other configuration changes — and because `at` is
+session-scoped rather than account-scoped, a cached `gemini-token.json` from the
+old account is worth deleting at the same time to force a fresh scrape.
