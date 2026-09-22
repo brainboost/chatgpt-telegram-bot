@@ -78,7 +78,12 @@ EXTENDED_THINKING = True
 DEFAULT_LANGUAGE = "en"
 _REQID_START = 100_000
 _REQID_STEP = 100_000
-_REQUEST_TIMEOUT = 300
+
+# Deliberately below the worker Lambda's 5-minute budget: a stalled stream must
+# time out while there is still time to fail over and publish a reply. With both
+# at 300 s the invocation was killed first, so the user got nothing and SQS
+# redelivered the request as a duplicate.
+_REQUEST_TIMEOUT = 240
 
 # In-stream error codes arrive in frame[5] on an HTTP 200 response.
 _USAGE_LIMIT = 1037
@@ -387,6 +392,13 @@ def parse_stream(raw: str) -> TurnResult:
     Candidate text arrives as deltas; the accumulated text is the longest value
     seen for a given candidate marker, so the primary (first) candidate wins and
     the longest text is used only as a fallback when the primary is empty.
+
+    An answer is only returned once the stream marked it complete. Google
+    streams the text as it is generated, so a connection dropped mid-answer
+    leaves a partial reply in hand — the frames seen so far. Returning that
+    fragment shows the user a sentence that stops in the middle with nothing to
+    explain it, which is worse than failing the turn: the failover chain, or
+    ``_run_turn``'s fresh-conversation retry, then answers properly.
     """
     state = ConversationState()
     texts: dict[str, str] = {}
@@ -455,14 +467,27 @@ def parse_stream(raw: str) -> TurnResult:
             "been silently aborted)."
         )
 
+    if not completed:
+        logger.error(
+            "Gemini stream stopped after %d characters without completing the "
+            "answer; refusing to deliver a truncated reply",
+            len(answer),
+        )
+        # Prefer the backend's own explanation when it gave one: a quota error
+        # is account-wide, so the shared retry policy must not treat the thread
+        # as the problem.
+        if error is not None:
+            _raise_for_error(error)
+        raise StreamAbortedError(
+            f"Gemini stopped after {len(answer)} characters without completing "
+            "the answer (the stream was cut short)."
+        )
+
     if error is not None:
+        # Codes such as 1096 arrive on every otherwise-complete turn (observed
+        # live), so a finished answer outranks them.
         logger.warning(
             "Gemini reported code %s after completing the turn; ignoring it", error
-        )
-    if not completed and not state.context:
-        logger.warning(
-            "Gemini stream ended without a completion marker; returning %d chars",
-            len(answer),
         )
     return TurnResult(text=strip_annotations(answer), state=state)
 

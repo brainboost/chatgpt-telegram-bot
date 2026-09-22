@@ -232,6 +232,49 @@ def test_an_unknown_trailing_error_does_not_cost_a_good_answer(code):
     assert parse_stream(framed(result_frame("still fine", context="c"), error_frame(code))).text == "still fine"
 
 
+def test_an_answer_without_the_completion_marker_is_refused():
+    """A dropped connection leaves a partial reply in hand.
+
+    Google streams text as it is generated, so the frames seen so far can hold
+    half a sentence. Delivering that shows the user a reply that stops mid-word
+    with nothing to explain it, so the turn fails instead and the failover chain
+    — or the fresh-conversation retry — answers properly.
+    """
+    raw = framed(result_frame("Three players played", complete=False))
+
+    with pytest.raises(StreamAbortedError) as error:
+        parse_stream(raw)
+
+    assert "characters" in str(error.value)
+
+
+def test_a_partial_answer_is_refused_even_with_a_continuation_token():
+    """The old guard returned the fragment whenever a context token arrived."""
+    raw = framed(result_frame("half a sentence", complete=False, context="ctx-1"))
+
+    with pytest.raises(StreamAbortedError):
+        parse_stream(raw)
+
+
+def test_a_partial_answer_reports_the_backend_error_code():
+    """The code explains the cut, and a quota error is not the thread's fault."""
+    raw = framed(result_frame("half", complete=False), error_frame(1037))
+
+    with pytest.raises(UsageLimitError):
+        parse_stream(raw)
+
+
+def test_the_delta_sequence_of_a_live_turn_is_delivered():
+    """The shape of a real capture: growing deltas, then the completion marker."""
+    raw = framed(
+        result_frame("Three", complete=False),
+        result_frame("Three players played", complete=False),
+        result_frame("Three players played for 3 hours.", complete=True),
+    )
+
+    assert parse_stream(raw).text == "Three players played for 3 hours."
+
+
 def test_strips_the_followup_suggestion():
     text = 'Answer body.\n<FollowUp label="More?" query="Tell me more"/>'
 

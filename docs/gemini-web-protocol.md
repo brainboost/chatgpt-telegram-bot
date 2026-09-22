@@ -177,7 +177,7 @@ and a rejected request instead puts `7` in `frame[5][0]`.
 | 1037 | free-tier usage limit for the window | `UsageLimitError` → failover |
 | 1060 | IP temporarily blocked | `TemporarilyBlockedError` → failover |
 | 7 | request rejected | `RequestRejectedError` — usually expired cookies |
-| 1096 | appended to a turn that **already succeeded** | logged as a warning, then ignored |
+| 1096 | appended to **every** turn observed, successful or not | logged as a warning, then ignored |
 | 1097 | follow-up rejected with no answer at all | logged, then failover |
 
 ### A code can arrive *after* a good answer
@@ -203,6 +203,26 @@ level so a persistent one is visible in CloudWatch rather than only showing up a
 the failover chain quietly taking over. When quota is spent the stream can
 additionally carry only bookkeeping and no `wrb.fr` payload at all (one such
 response was 218 bytes); that surfaces as `StreamAbortedError`.
+
+### The completion marker decides whether an answer may be delivered
+
+Google streams the answer as it is generated, so the frames already received hold
+a partial reply whenever the connection stops early — a stall, a dropped socket,
+or Google abandoning a turn it is throttling. Measured live: one request received
+3586 bytes and then nothing for 180 s before curling out.
+
+The last candidate frame of a finished turn carries `inner[4][0][8][0] == 2`,
+where every earlier frame carries `1`. That held for every complete turn captured
+while writing this (answers of 1107 and 11 283 characters among them), so the
+engine returns an answer only once the marker has been seen. Without it the turn
+fails with `StreamAbortedError`, or with the in-stream code when one explains the
+cut — a quota code is account-wide, so it must not be recorded as the thread's
+fault.
+
+This is a deliberate change of behaviour. An earlier version returned whatever
+text it had with only a log line, which is how a reply that stops mid-sentence
+reaches the user with nothing to account for it. Failing instead lets the failover
+chain, or `_run_turn`'s fresh-conversation retry, answer properly.
 
 **1097 is unexplained.** Every follow-up turn attempted after a long burst of test
 requests was rejected with a bare 1097 and no answer, while first turns kept
@@ -295,6 +315,16 @@ has consequences worth stating before deployment rather than discovering later:
   context-less turn rather than a permanently dead thread, but the row is not
   correctly serialized. The proper fix is a conditional write against a revision
   attribute, or serializing per user.
+
+- **The HTTP timeout must stay below the worker timeout.** `_REQUEST_TIMEOUT` and
+  the Lambda's `WORKER_TIMEOUT` (`Duration.minutes(5)`) were both 300 s, so a
+  stream that stalls consumes the whole invocation: the Lambda is killed before
+  the request can time out, fail over and reply, and because the SQS message was
+  never deleted it is redelivered later as a duplicate. The stalled request
+  observed live — 3586 bytes, then silence for 180 s — is exactly that shape, so
+  `_REQUEST_TIMEOUT` is now set below the worker budget to make the timeout fire
+  first. The trade is that an answer needing longer to stream than
+  `_REQUEST_TIMEOUT` now fails over instead of arriving.
 
 - **Failures are invisible to the operator.** A dead `__Secure-1PSID` does not
   announce itself: the request fails over to the next chat provider and the user

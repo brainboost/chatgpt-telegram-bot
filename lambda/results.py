@@ -16,7 +16,12 @@ from telegram.ext import (
     Application,
 )
 
-from .formatting import assemble_engine_reply, resolve_format, send_with_fallback
+from .formatting import (
+    assemble_engine_reply,
+    reply_part,
+    resolve_format,
+    send_with_fallback,
+)
 from .utils import decode_message, read_ssm_param
 
 logging.basicConfig()
@@ -75,7 +80,9 @@ def __send_images(chat_id: str, message_id: int, message: str) -> None:
             logger.error("chat_id:%s, message_id: %s", chat_id, message_id)
             formatted_send = __attempt_send(chat_id, message_id, parse_mode=True)
             plain_send = __attempt_send(chat_id, message_id, parse_mode=False)
-            send_with_fallback(f"Error: {url}", formatted_send, plain_send)
+            send_with_fallback(
+                reply_part(f"Error: {url}"), formatted_send, plain_send
+            )
         try:
             asyncio.run(
                 bot.send_photo(
