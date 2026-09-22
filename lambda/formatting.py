@@ -66,7 +66,7 @@ fallback therefore degrades to the user's answer, never to escaped source.
 
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import providers
@@ -656,24 +656,31 @@ def assemble_plain_reply(
     ]
 
 
-def send_with_fallback(
+async def send_with_fallback(
     part: ReplyPart,
-    formatted_send: Callable[[str], None],
-    plain_send: Callable[[str], None],
+    formatted_send: Callable[[str], Awaitable[None]],
+    plain_send: Callable[[str], Awaitable[None]],
 ) -> None:
     """Send ``part.formatted`` with MarkdownV2; on failure send ``part.plain``.
 
     The retry carries the *raw* content, so a parse failure degrades to readable
     text rather than to escaped markup. A failing plain send is logged and
     swallowed (the result queue must not loop).
+
+    Async because the caller has to ``await`` it on the loop its send callables
+    run on: the fallback is a *second* request through the same bot, and PTB's
+    pooled keep-alive connections belong to the loop that created them. Starting a
+    new loop per attempt trips over the previous one while closing its connection
+    (``RuntimeError: Event loop is closed``), which is how the retry came to fail
+    after a send that had already failed.
     """
     try:
-        formatted_send(part.formatted)
+        await formatted_send(part.formatted)
         return
     except Exception as e:
         # A BadRequest from MarkdownV2 is expected for model text; resend plain.
         logger.warning("MarkdownV2 send failed, retrying unformatted", exc_info=e)
     try:
-        plain_send(part.plain)
+        await plain_send(part.plain)
     except Exception as e:
         logger.error("Plain resend failed too", exc_info=e)
