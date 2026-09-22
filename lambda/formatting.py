@@ -69,6 +69,8 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import providers
+
 logger = logging.getLogger(__name__)
 
 # Telegram hard limit is 4096 UTF-16 units; keep legacy headroom for headers.
@@ -78,7 +80,9 @@ MAX_MESSAGE_CHARS = 4060
 # plus header still fits the budget above.
 _HEADER_RESERVE = 64
 
-DEFAULT_FLAVOR = "llm"
+# The same constant the engines declare on the wire: see providers.py for why it
+# is shared rather than written twice.
+DEFAULT_FLAVOR = providers.DEFAULT_CONTENT_FLAVOR
 
 # The full MarkdownV2 reserved set, escaped character by character.
 _MDV2_RESERVED = re.compile(r"([_*\[\]()~`>#+\-=|{}.!\\])")

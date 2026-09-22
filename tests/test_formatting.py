@@ -15,7 +15,23 @@ import importlib
 
 import pytest
 
+import providers
+
 fmt = importlib.import_module("lambda.formatting")
+
+
+def _unescaped(text: str, char: str) -> int:
+    """Count ``char`` occurrences that are not backslash-escaped."""
+    total = 0
+    index = 0
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        if text[index] == char:
+            total += 1
+        index += 1
+    return total
 
 
 # --- headers ----------------------------------------------------------------
@@ -58,6 +74,45 @@ def test_a_label_cannot_inject_markup_into_the_header():
 def test_resolve_format_defaults_to_the_llm_renderer():
     assert fmt.resolve_format(None, None) == "llm"
     assert fmt.resolve_format("gemini", None) == "llm"
+
+
+def test_the_default_flavor_is_the_one_the_engines_declare():
+    """Both bundles must agree; a literal on either side drifts silently."""
+    assert fmt.DEFAULT_FLAVOR == providers.DEFAULT_CONTENT_FLAVOR
+
+
+def test_the_legacy_flavor_leaves_delimiters_unbalanced():
+    """Why the flavor is not cosmetic — this is the send that failed.
+
+    Three model bullets are three unpaired ``*``, and Telegram refuses the whole
+    message: "Can't parse entities: can't find end of bold entity".
+    """
+    raw = "* one\n* two\n* three\n"
+
+    assert _unescaped(fmt.format_text(raw, "markdown"), "*") % 2 == 1
+    assert _unescaped(fmt.format_text(raw, "llm"), "*") % 2 == 0
+
+
+def test_the_reply_telegram_rejected_now_balances_every_delimiter():
+    """Verbatim from the failure: `can't find end of bold entity at byte offset
+    530`. Three bullets plus five bold runs gave the legacy escape an odd number
+    of asterisks, so the last one opened an entity that never closed.
+    """
+    raw = (
+        "Total court time played was 3 player-hours (2 hours + 1 hour).\n\n"
+        "* **Rate per player-hour:** $95 \\text{ zł} \\div 3 \\text{ "
+        "player-hours} = 31.67 \\text{ zł/hour}$\n"
+        "* **Two 2-hour players:** $2 \\times 31.67 \\text{ zł} =$ "
+        "**31.67 zł each**\n"
+        "* **One 1-hour player:** $1 \\times 31.67 \\text{ zł} =$ "
+        "**31.67 zł**\n"
+    )
+
+    rendered = fmt.format_text(raw, "llm")
+
+    assert "$" not in rendered and "\\text" not in rendered
+    assert _unescaped(rendered, "*") % 2 == 0
+    assert "• *Rate per player\\-hour:* 95 zł ÷ 3 player\\-hours \\= 31\\.67 zł/hour" in rendered
 
 
 def test_resolve_format_prefers_declared_format():
