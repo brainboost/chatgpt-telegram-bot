@@ -4,10 +4,13 @@ The responder is exercised against its provider-I/O seam (``gemini.generate``),
 so these run offline: no network, no credentials, no model.
 """
 
+import logging
+
 import pytest
 
 from engines import gemini
 from engines.gemini_web import (
+    ConversationNotContinuableError,
     ConversationState,
     CredentialsRejectedError,
     GeminiError,
@@ -184,6 +187,50 @@ def test_a_failing_followup_is_retried_as_a_new_conversation(monkeypatch):
     assert calls == ["c_dead", ""]
     assert context.session["cid"] == "c_new"
     assert _context(store).session["cid"] == "c_new"
+
+
+def test_a_refused_continuation_is_retried_without_a_traceback(monkeypatch, caplog):
+    """1097 is the *expected* answer to a follow-up, not a crash.
+
+    It is the normal outcome of every follow-up while continuation is unsolved,
+    so it reports one line: a traceback per message would bury the failures that
+    are actually unexpected.
+    """
+
+    def generate(prompt, state):
+        if not state.is_new():
+            raise ConversationNotContinuableError("1097")
+        return TurnResult(text="fresh", state=ConversationState(cid="c_new"))
+
+    monkeypatch.setattr(gemini, "generate", generate)
+    context = _context(MemoryContextStore())
+    context.set_session({"cid": "c_dead", "rid": "r_1"})
+
+    with caplog.at_level(logging.WARNING):
+        answer = gemini.GeminiResponder().answer({"text": "more"}, context)
+
+    assert answer == "fresh"
+    (record,) = [r for r in caplog.records if "will not continue" in r.getMessage()]
+    assert record.exc_info is None
+    # The responder hands the fresh thread back for the runtime to persist.
+    assert context.session["cid"] == "c_new"
+
+
+def test_an_unexpected_failure_keeps_its_traceback(monkeypatch, caplog):
+    def generate(prompt, state):
+        if not state.is_new():
+            raise GeminiError("something new")
+        return TurnResult(text="fresh", state=ConversationState(cid="c_new"))
+
+    monkeypatch.setattr(gemini, "generate", generate)
+    context = _context(MemoryContextStore())
+    context.set_session({"cid": "c_dead", "rid": "r_1"})
+
+    with caplog.at_level(logging.WARNING):
+        gemini.GeminiResponder().answer({"text": "more"}, context)
+
+    (record,) = [r for r in caplog.records if "will not continue" in r.getMessage()]
+    assert record.exc_info is not None
 
 
 def test_the_dead_thread_is_cleared_even_if_the_retry_also_fails(monkeypatch):

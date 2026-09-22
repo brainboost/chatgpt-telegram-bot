@@ -178,7 +178,7 @@ and a rejected request instead puts `7` in `frame[5][0]`.
 | 1060 | IP temporarily blocked | `TemporarilyBlockedError` → failover |
 | 7 | request rejected | `RequestRejectedError` — usually expired cookies |
 | 1096 | appended to **every** turn observed, successful or not | logged as a warning, then ignored |
-| 1097 | follow-up rejected with no answer at all | logged, then failover |
+| 1097 | any turn carrying conversation ids, no answer at all | `ConversationNotContinuableError` → thread dropped, retried as a new conversation |
 
 ### A code can arrive *after* a good answer
 
@@ -224,11 +224,10 @@ text it had with only a log line, which is how a reply that stops mid-sentence
 reaches the user with nothing to account for it. Failing instead lets the failover
 chain, or `_run_turn`'s fresh-conversation retry, answer properly.
 
-**1097 is unexplained.** Every follow-up turn attempted after a long burst of test
-requests was rejected with a bare 1097 and no answer, while first turns kept
-working. A follow-up with the identical metadata shape had succeeded earlier in
-the same session. The failure is reproducible (4 conversations, ~5 attempts) and
-the following explanations were each tested and **ruled out**:
+**1097 is still unexplained, and it is the normal answer to a follow-up.** Every
+turn that carries conversation ids is refused with a bare 1097 and no answer,
+while every first turn succeeds. The failure is reproducible across sessions and
+conversations, and each explanation below was tested and **ruled out**:
 
 | Hypothesis | Test | Result |
 |---|---|---|
@@ -239,19 +238,36 @@ the following explanations were each tested and **ruled out**:
 | Payload shape wrong | identical shape succeeded earlier the same day | not the shape |
 | Conversations created by our own replay are not continuable | followed up into a conversation the **browser** created (taken from the capture) | still 1097 |
 | A different bootstrap route exposes `at` more reliably | 12 loads across 6 routes (`/app`, `/app?hl=en`, `/`, `/u/0/app`, `/u/0/`, `?authuser=0`) | 0/12; the token's presence is time-dependent, not path-dependent |
+| The browser's other payload differences matter | matched its slot 41 = `[2]` and slot 68 = `2`, and its 99-slot array length | 1097 either way; first turns unaffected |
+| `source-path=/app/<cid>` is required | added it to the query string | still 1097 |
+| The capability list must be doubled | sent `[4,5,6,8,4,5,6,8]` | still 1097 |
+| Metadata must use empty strings rather than nulls | sent `["c…","r…","rc…","","","","","","",""]` | HTTP **400**, so slot 2 is validated — but with real ids and nulls it is 1097 |
 
-Two of these are worth keeping in mind for their own sake. The route sweep means
-there is no better bootstrap URL to switch to — the cache really is the primary
-mechanism and the scrape is opportunistic. And the browser-conversation test rules
-out anything about how our own requests create threads.
+Critically, **a successful turn's response contains no continuation token at
+all**: scanning every frame of a live first turn for any string longer than 40
+characters finds none, the final frame's inner payload has only three slots
+(`1` = ids, `2` = the generated title), and metadata slot 25 is empty. So either
+the web app obtains the continuation state from a different RPC — one we do not
+call — or continuation is blocked for this account. That is the next thing to
+establish, and it needs a HAR of a real browser *follow-up*, because the captured
+HAR holds a single Deep Research first turn.
 
-That leaves account-level throttling of multi-turn automation as the most likely
-reading — roughly a dozen conversations had been created within two hours — but it
-is **not confirmed**. The one hypothesis that could not be tested is whether a
-*freshly scraped* `at` behaves differently from the cached one, because the page
-stopped exposing the token before that path could be exercised (a verification
-harness bug also hid this for a while: it injected the captured token whenever the
-scrape missed, so every follow-up attempt silently used a stale token — check the
+Because a refusal is an expected answer rather than a defect, `_run_turn` reports
+it in one line and without a traceback; a traceback per message would bury the
+failures that are genuinely unexpected.
+
+Two of the entries above are worth keeping in mind for their own sake. The route
+sweep means there is no better bootstrap URL to switch to — the cache really is
+the primary mechanism and the scrape is opportunistic. And the browser-conversation
+test rules out anything about how our own requests create threads.
+
+That leaves account-level throttling of multi-turn automation as one reading —
+roughly a dozen conversations get created per test session — but it is **not
+confirmed**. The one hypothesis that could not be tested is whether a *freshly
+scraped* `at` behaves differently from the cached one, because the page stopped
+exposing the token before that path could be exercised (a verification harness bug
+also hid this for a while: it injected the captured token whenever the scrape
+missed, so every follow-up attempt silently used a stale token — check the
 `tokens` value actually reaching `build_generate_request`, not the bootstrap log
 line). The useful diagnostic for whoever hits this next: try a follow-up on a
 *freshly exported browser session on a different account*. If it works there, this

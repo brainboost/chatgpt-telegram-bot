@@ -16,6 +16,7 @@ from engines.gemini_web import (
     MODEL_HEADER_KEY,
     REQUEST_UUID_HEADER,
     STREAM_URL,
+    ConversationNotContinuableError,
     ConversationState,
     CredentialsRejectedError,
     GeminiError,
@@ -189,6 +190,7 @@ def test_parse_stream_raises_when_the_stream_carries_no_answer():
         (1037, UsageLimitError),
         (1060, TemporarilyBlockedError),
         (1050, GeminiError),
+        (1097, ConversationNotContinuableError),
     ],
 )
 def test_in_stream_error_codes_are_classified(code, expected):
