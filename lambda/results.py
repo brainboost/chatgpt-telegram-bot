@@ -17,6 +17,7 @@ invariant for the webhook handler.
 """
 
 import asyncio
+import functools
 import json
 import logging
 from urllib.parse import urlparse
@@ -44,9 +45,21 @@ def response_handler(event, context) -> None:
     asyncio.run(__process_records(event))
 
 
+@functools.cache
+def __telegram_token() -> str:
+    """The bot token, read from SSM once per container.
+
+    Resolved at call time rather than at import, so this module stays importable
+    (which is what makes it testable), and cached so a warm container does not pay
+    for a boto3 client and an SSM round trip on every invocation. A failed lookup
+    is not cached — ``functools.cache`` only stores returns.
+    """
+    return read_ssm_param(param_name="TELEGRAM_TOKEN")
+
+
 async def __process_records(event: dict) -> None:
     """Build the bot for this invocation, send everything, shut it down."""
-    bot = Bot(token=read_ssm_param(param_name="TELEGRAM_TOKEN"))
+    bot = Bot(token=__telegram_token())
     # initialize() builds the HTTP client inside this loop and fetches getMe;
     # shutdown() closes it, so nothing outlives the loop it belongs to.
     await bot.initialize()
@@ -54,7 +67,13 @@ async def __process_records(event: dict) -> None:
         for record in event["Records"]:
             await __process_record(bot, record)
     finally:
-        await bot.shutdown()
+        try:
+            await bot.shutdown()
+        except Exception as e:
+            # Every message has already been sent by now, so letting this fail
+            # would only make the asynchronous invocation retry and deliver the
+            # whole reply a second time.
+            logger.error("Ignoring a failure while shutting the bot down", exc_info=e)
 
 
 async def __process_record(bot: Bot, record: dict) -> None:
@@ -97,10 +116,13 @@ async def __send_images(
 ) -> None:
     """Send each URL in an image result as a photo.
 
-    A line that is not a URL is reported and skipped: sending it as a photo could
-    only fail, and that failure used to be indistinguishable from a real one.
+    A line that is not a URL is reported and skipped, and a blank line is skipped
+    silently: the result is built from ``splitlines()``, so an empty or trailing
+    line would otherwise reach the user as an ``Error:`` reply with nothing in it.
     """
     for url in message.splitlines():
+        if not url.strip():
+            continue
         if not __is_valid_url(url):
             logger.error(
                 "Image result carried a line that is not a URL "
