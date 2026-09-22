@@ -36,6 +36,7 @@ class FakeBot:
     instances: ClassVar[list[FakeBot]] = []
     fail_markdown: ClassVar[bool] = False
     fail_photos: ClassVar[set[str]] = set()
+    fail_shutdown: ClassVar[bool] = False
 
     def __init__(self, *, token: str) -> None:
         self.token = token
@@ -60,6 +61,8 @@ class FakeBot:
 
     async def shutdown(self) -> None:
         self.calls.append("shutdown")
+        if FakeBot.fail_shutdown:
+            raise BadRequest("failed to close the client")
 
     async def send_message(self, **kwargs) -> None:
         self._touch_loop()
@@ -85,6 +88,8 @@ def fake_bot(monkeypatch):
     FakeBot.instances = []
     FakeBot.fail_markdown = False
     FakeBot.fail_photos = set()
+    FakeBot.fail_shutdown = False
+    results.__telegram_token.cache_clear()
     monkeypatch.setattr(results, "Bot", FakeBot)
     monkeypatch.setattr(results, "read_ssm_param", lambda **kwargs: "test-token")
     return FakeBot
@@ -222,3 +227,45 @@ def test_the_error_message_for_a_bad_line_is_escaped():
     (text, parse_mode), = bot.messages
     assert "\\*" in text  # escaped, so the send cannot fail on it
     assert parse_mode is not None
+
+
+def test_blank_lines_in_an_image_result_are_ignored():
+    """``splitlines`` yields empty entries, which used to reply ``Error: ``."""
+    bot = _run(
+        _event(
+            "https://example.com/a.png\n\nhttps://example.com/b.png",
+            kind="imagine",
+        )
+    )
+
+    assert bot.photos == [
+        "https://example.com/a.png",
+        "https://example.com/b.png",
+    ]
+    assert bot.messages == []
+
+
+def test_the_token_is_read_from_ssm_once_per_container(monkeypatch):
+    """Cached, so a warm container skips the boto3 client and the round trip."""
+    lookups = []
+
+    def counting_param(**kwargs):
+        lookups.append(kwargs["param_name"])
+        return "test-token"
+
+    monkeypatch.setattr(results, "read_ssm_param", counting_param)
+
+    results.response_handler(_event("one"), None)
+    results.response_handler(_event("two"), None)
+
+    assert lookups == ["TELEGRAM_TOKEN"]
+
+
+def test_a_failing_shutdown_does_not_fail_the_invocation():
+    """The messages are already out: retrying would deliver them twice."""
+    FakeBot.fail_shutdown = True
+
+    bot = _run(_event("hello"))
+
+    assert bot.messages == [("*__gemini__*\nhello", results.constants.ParseMode.MARKDOWN_V2)]
+    assert bot.calls[-1] == "shutdown"

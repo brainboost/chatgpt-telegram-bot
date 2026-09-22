@@ -76,22 +76,23 @@ def _run_turn(
 ) -> TurnResult:
     """Run one turn, recovering from a thread the backend will not continue.
 
-    A stored conversation can stop being continuable — Google rejects or throttles
-    it, or the ids go stale after a concurrent update to the same row. Retrying
-    the same ids on every later message would leave the thread permanently dead
-    while the failover chain answered from another provider, so the user would
-    silently lose Gemini for the rest of that conversation. Instead, drop the dead
-    thread and answer this turn as a new one.
+    A stored conversation can stop being continuable — Google throttles
+    multi-turn chats per account, or the ids go stale after a concurrent update to
+    the same row. Retrying the same ids on every later message would leave the
+    thread permanently dead while the failover chain answered from another
+    provider, so the user would silently lose Gemini for the rest of that
+    conversation. Instead, drop the dead thread and answer this turn as a new one.
     """
     try:
         return generate(text, state)
     except GeminiError as error:
         if state.is_new() or isinstance(error, _ACCOUNT_WIDE_ERRORS):
             raise
-        # A refusal is an expected answer from this backend, not a defect, and it
-        # is the *normal* outcome of every follow-up while continuation is
-        # unsolved — so it is reported in one line. A traceback here would bury
-        # the unexpected failures in noise.
+        # A refusal is an expected answer from this backend, not a defect: Google
+        # throttles multi-turn chats per account, so while an account is throttled
+        # this is the normal outcome of every follow-up while first turns keep
+        # working. It gets one line; a traceback per message would bury the
+        # failures that are genuinely unexpected.
         expected = isinstance(error, ConversationNotContinuableError)
         logger.warning(
             "Gemini will not continue conversation %s; dropping the thread and "
