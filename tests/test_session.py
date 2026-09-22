@@ -6,10 +6,12 @@ intake → session → answer → save → publish pipeline is covered without A
 """
 
 import base64
+import importlib
 import zlib
 
 import pytest
 
+import providers
 from engines.session import EngineResponder, run_engine_event
 
 
@@ -110,6 +112,14 @@ def test_single_result_published_and_saved():
     assert context.turns == [{"request": "hello engines", "response": "stub answer"}]
 
 
+def test_a_declared_format_still_wins_over_the_shared_default():
+    responder = StubResponder(wants_session=True, format="plain")
+
+    _, published, _ = _run(_text_payload(), responder)
+
+    assert published[0]["format"] == "plain"
+
+
 def test_history_is_visible_to_the_responder():
     loaded_turns = [
         {"request": "earlier q", "response": "earlier a"},
@@ -155,11 +165,21 @@ def test_responder_format_is_stamped_on_the_wire():
     assert published[0]["format"] == "plain"
 
 
-def test_default_responder_format_is_markdown():
-    responder = StubResponder(wants_session=True)
+def test_default_responder_format_is_the_shared_content_flavor():
+    """The regression that made a whole renderer unreachable.
+
+    A declared format rides the wire and *overrides* the sender's own default,
+    so a responder that declares nothing still has to name the flavor the sender
+    would have picked. A hardcoded ``"markdown"`` here pinned every chat engine
+    to the legacy renderer, and the sender's new default never ran.
+    """
+    fmt = importlib.import_module("lambda.formatting")
+    responder = StubResponder(wants_session=True)  # declares no format at all
+
     _, published, _ = _run(_text_payload(), responder)
 
-    assert published[0]["format"] == "markdown"
+    assert published[0]["format"] == fmt.DEFAULT_FLAVOR
+    assert fmt.DEFAULT_FLAVOR == providers.DEFAULT_CONTENT_FLAVOR
 
 
 def _failing_responder(label, **kwargs):

@@ -178,10 +178,11 @@ Approved in-session; not regressions:
 3. Chat engines send up to 8 prior turns (multi-turn memory is on).
 4. `user-conversations` / `request-jobs` are no longer written; image and
    translation flows are stateless.
-5. Engines publish **raw** content plus a `format` flavor (`markdown` default,
-   `plain` for DeepL, legacy `markdownv2` passthrough); the sender renders once
-   (`lambda/formatting.py`). Gemini's bespoke `__as_markdown` is gone, so
-   Gemini/DeepL rendering can differ slightly from before.
+5. Engines publish **raw** content plus a `format` flavor
+   (`providers.DEFAULT_CONTENT_FLAVOR`, currently `llm`, for a responder that
+   declares none; `plain` for DeepL; legacy `markdownv2` passthrough); the sender
+   renders once (`lambda/formatting.py`). Gemini's bespoke `__as_markdown` is
+   gone, so Gemini/DeepL rendering can differ slightly from before.
 6. `/engines` (parallel multi-provider) is **removed**; `/gemini`, `/qwen`,
    `/llama` set the conversation-start provider (persisted in the user-config
    `engines` field, legacy name).

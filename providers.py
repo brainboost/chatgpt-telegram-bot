@@ -34,6 +34,13 @@ CHAT_CHAIN_ORDER: tuple[str, ...] = ("gemini", "qwen", "llama")
 
 DEFAULT_CHAT_PROVIDER = CHAT_CHAIN_ORDER[0]
 
+# The content flavor a chat provider's answer carries when the responder does
+# not declare one. It is a contract *between* the two bundles — the engines
+# declare it on the wire and the Telegram sender picks a renderer from it — so
+# it lives here, in the module build_bundles.py copies into both. A literal
+# duplicated on either side silently pins that side to a stale renderer.
+DEFAULT_CONTENT_FLAVOR = "llm"
+
 
 @dataclass(frozen=True)
 class Provider:

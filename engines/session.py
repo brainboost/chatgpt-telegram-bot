@@ -10,8 +10,9 @@ Interface summary (everything a caller must know):
   ``label``, whether it keeps a per-user session (``wants_session``), whether
   provider errors should be replied to the user as error text
   (``reply_on_error``) or raised to the DLQ, the content ``format`` its
-  answers carry (``"markdown"`` by default, ``"plain"`` for literal text — the
-  Telegram-side renderer keys off it), and ``answer()`` — provider I/O
+  answers carry (undeclared by default, in which case
+  ``providers.DEFAULT_CONTENT_FLAVOR`` applies — the Telegram-side renderer keys
+  off it), and ``answer()`` — provider I/O
   that returns one result (``str``, labelled with ``label``) or several
   (``list[(label, text)]``, e.g. DeepL one per target language).
   Chat responders also set ``fails_over``: when their ``answer()`` raises, the
@@ -56,7 +57,8 @@ class EngineResponder(Protocol):
     """The narrow seam each engine module satisfies.
 
     ``label``, ``wants_session`` and ``reply_on_error`` are class attributes;
-    ``format`` is an optional class attribute defaulting to ``"markdown"`` and
+    ``format`` is an optional class attribute naming the content flavor of the
+    answers (undeclared falls back to ``providers.DEFAULT_CONTENT_FLAVOR``) and
     ``fails_over`` is an optional class attribute (default ``False``) that
     opts a chat responder into the failover chain.
     """
@@ -228,8 +230,16 @@ def _save_and_publish(
 
 
 def _responder_format(responder: EngineResponder) -> str:
-    """The declared content flavor; responders default to ``markdown``."""
-    return getattr(responder, "format", "markdown")
+    """The declared content flavor; responders may leave it undeclared.
+
+    ``providers.DEFAULT_CONTENT_FLAVOR`` is authoritative rather than a local
+    literal. A declared format travels on the wire and *overrides* the sender's
+    own default, so a responder that declares nothing must still name the flavor
+    the sender would have chosen — otherwise the sender's default is unreachable
+    and its renderer silently never runs.
+    """
+    declared = getattr(responder, "format", None)
+    return declared or providers.DEFAULT_CONTENT_FLAVOR
 
 
 def _handle_answer_error(
