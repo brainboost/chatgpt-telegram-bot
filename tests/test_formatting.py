@@ -11,6 +11,7 @@ The regression that motivates the renderer is pinned by
 MarkdownV2 parsing, and the fallback then showed the user escaped source.
 """
 
+import asyncio
 import importlib
 
 import pytest
@@ -396,9 +397,13 @@ def test_send_with_fallback_uses_formatted_attempt_first():
     calls = []
     part = fmt.reply_part("hello")
 
-    fmt.send_with_fallback(
-        part, lambda text: calls.append(("md", text)), lambda text: calls.append(("plain", text))
-    )
+    async def formatted(text):
+        calls.append(("md", text))
+
+    async def plain(text):
+        calls.append(("plain", text))
+
+    asyncio.run(fmt.send_with_fallback(part, formatted, plain))
 
     assert calls == [("md", "hello")]
 
@@ -408,16 +413,19 @@ def test_send_with_fallback_resends_the_raw_text_on_failure():
     calls = []
     (part,) = fmt.assemble_engine_reply("**bold**", "gemini")
 
-    def reject(text):
+    async def reject(text):
         raise ValueError("bad markdown")
 
-    fmt.send_with_fallback(part, reject, lambda text: calls.append(text))
+    async def plain(text):
+        calls.append(text)
+
+    asyncio.run(fmt.send_with_fallback(part, reject, plain))
 
     assert calls == ["gemini\n**bold**"]
 
 
 def test_send_with_fallback_swallows_double_failure():
-    def reject(text):
+    async def reject(text):
         raise ValueError("boom")
 
-    fmt.send_with_fallback(fmt.reply_part("text"), reject, reject)  # must not raise
+    asyncio.run(fmt.send_with_fallback(fmt.reply_part("text"), reject, reject))
