@@ -26,6 +26,7 @@ import json
 import logging
 
 from .gemini_web import (
+    ConversationNotContinuableError,
     ConversationState,
     CredentialsRejectedError,
     GeminiError,
@@ -87,11 +88,17 @@ def _run_turn(
     except GeminiError as error:
         if state.is_new() or isinstance(error, _ACCOUNT_WIDE_ERRORS):
             raise
+        # A refusal is an expected answer from this backend, not a defect, and it
+        # is the *normal* outcome of every follow-up while continuation is
+        # unsolved — so it is reported in one line. A traceback here would bury
+        # the unexpected failures in noise.
+        expected = isinstance(error, ConversationNotContinuableError)
         logger.warning(
             "Gemini will not continue conversation %s; dropping the thread and "
-            "retrying as a new conversation",
+            "retrying as a new conversation (%s)",
             state.cid,
-            exc_info=error,
+            error,
+            exc_info=None if expected else error,
         )
         if context is not None:
             context.set_session({})

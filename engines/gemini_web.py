@@ -89,6 +89,11 @@ _REQUEST_TIMEOUT = 240
 _USAGE_LIMIT = 1037
 _IP_BLOCKED = 1060
 _REQUEST_REJECTED = 7
+# Observed on every attempt to continue an existing conversation, and never on a
+# first turn: the turn is refused before any answer text is produced. Whether the
+# cause is a missing continuation token or an account restriction is unresolved,
+# so it is named for what is observable rather than for a guessed cause.
+_CONVERSATION_REFUSED = 1097
 
 # The tag body tolerates quoted attribute values instead of stopping at the first
 # ">", so `label="a > b"` cannot leave a fragment behind in the message.
@@ -122,6 +127,15 @@ class StreamAbortedError(GeminiError):
     """The stream ended without any answer text."""
 
 
+class ConversationNotContinuableError(GeminiError):
+    """Google declined to continue the referenced conversation (in-stream 1097).
+
+    Only ever seen on a turn that carries conversation ids: every first turn
+    succeeds. It is not the thread's *content* that is refused, and retrying the
+    same ids can never help, so the caller drops the thread and answers fresh.
+    """
+
+
 _ERROR_MESSAGES: dict[int, tuple[type[GeminiError], str]] = {
     _USAGE_LIMIT: (
         UsageLimitError,
@@ -134,6 +148,10 @@ _ERROR_MESSAGES: dict[int, tuple[type[GeminiError], str]] = {
     _REQUEST_REJECTED: (
         RequestRejectedError,
         "Gemini refused the request; the stored cookies are most likely expired.",
+    ),
+    _CONVERSATION_REFUSED: (
+        ConversationNotContinuableError,
+        "Gemini would not continue the stored conversation (in-stream 1097).",
     ),
 }
 
